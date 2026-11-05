@@ -136,6 +136,8 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     var showAiChatBox by remember { mutableStateOf(false) }
     var aiPromptText by remember { mutableStateOf("") }
     var isAiGenerating by remember { mutableStateOf(false) }
+    var aiInsertMode by remember { mutableStateOf(true) }
+    var aiChatReply by remember { mutableStateOf("") }
     var showTopFormattingBar by remember { mutableStateOf(false) }
     var showSignatureDialog by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
@@ -735,15 +737,68 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
 
                             Spacer(modifier = Modifier.height(6.dp))
 
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                androidx.compose.material3.FilterChip(
+                                    selected = aiInsertMode,
+                                    onClick = { aiInsertMode = true },
+                                    label = { Text("وضع عدم الاتصال (فوري)", style = MaterialTheme.typography.labelSmall) }
+                                )
+                                androidx.compose.material3.FilterChip(
+                                    selected = !aiInsertMode,
+                                    onClick = { aiInsertMode = false },
+                                    label = { Text("وضع الاتصال (API)", style = MaterialTheme.typography.labelSmall) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
                             OutlinedTextField(
                                 value = aiPromptText,
                                 onValueChange = { aiPromptText = it },
-                                placeholder = { Text("اكتب طلبك (مثال: اكتب بحثاً عن الذكاء الاصطناعي)...") },
+                                placeholder = {
+                                    Text(
+                                        if (aiInsertMode)
+                                            "اكتب طلبك لإدراجه في المستند..."
+                                        else
+                                            "اسأل المساعد دون تعديل المستند..."
+                                    )
+                                },
                                 minLines = 2,
                                 maxLines = 4,
                                 enabled = !isAiGenerating,
                                 modifier = Modifier.fillMaxWidth()
                             )
+
+                            if (!aiInsertMode && aiChatReply.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(
+                                            text = aiChatReply,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        androidx.compose.material3.TextButton(
+                                            onClick = {
+                                                val safeHtml = com.example.security.HtmlSanitizer.sanitizeHtml(
+                                                    "<p>${aiChatReply.replace("\n", "<br>")}</p>"
+                                                )
+                                                EditorCommands.insertHtml(webViewRef, safeHtml)
+                                                viewModel.showMessage("تم إدراج الرد في المستند")
+                                            }
+                                        ) {
+                                            Text("إدراج الرد في المستند", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
 
                             Spacer(modifier = Modifier.height(8.dp))
 
@@ -757,15 +812,24 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                         if (prompt.isNotEmpty() && !isAiGenerating) {
                                             isAiGenerating = true
                                             scope.launch {
-                                                val result = AiAssistantService.generateDocumentContent(context, prompt)
-                                                isAiGenerating = false
-                                                result.onSuccess { html ->
+                                                if (aiInsertMode) {
+                                                    val html = AiAssistantService.generateOfflineContent(prompt)
+                                                    isAiGenerating = false
                                                     EditorCommands.insertHtml(webViewRef, html)
                                                     aiPromptText = ""
                                                     showAiChatBox = false
-                                                    viewModel.showMessage("تم تنفيذ الطلب وإدراجه في المستند")
-                                                }.onFailure { err ->
-                                                    viewModel.showMessage("تعذر التنفيذ: ${err.localizedMessage}")
+                                                    viewModel.showMessage("تم إعداد المحتوى وإدراجه فوراً (وضع عدم الاتصال)")
+                                                } else {
+                                                    val result = AiAssistantService.generateDocumentContent(context, prompt)
+                                                    isAiGenerating = false
+                                                    result.onSuccess { html ->
+                                                        EditorCommands.insertHtml(webViewRef, html)
+                                                        aiPromptText = ""
+                                                        showAiChatBox = false
+                                                        viewModel.showMessage("تم تنفيذ الطلب عبر الإنترنت وإدراجه في المستند")
+                                                    }.onFailure { err ->
+                                                        viewModel.showMessage("تعذر التنفيذ: ${err.localizedMessage}")
+                                                    }
                                                 }
                                             }
                                         }
