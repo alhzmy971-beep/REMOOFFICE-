@@ -628,15 +628,39 @@
 
     insertTextBox: (text) => {
       focusEditor();
-      const content = text || 'مربع نص قابل للتعديل — Editable Text Box';
-      document.execCommand('insertHTML', false, `<div class="text-box">${content}</div><p><br></p>`);
+      const box = document.createElement('div');
+      box.className = 'text-box';
+      box.textContent = text || 'مربع نص قابل للتعديل — Editable Text Box';
+      const spacer = document.createElement('p');
+      spacer.innerHTML = '<br>';
+      const selection = window.getSelection();
+      const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+      if (range) {
+        range.deleteContents();
+        range.insertNode(spacer);
+        range.insertNode(box);
+      } else {
+        editor.appendChild(box);
+        editor.appendChild(spacer);
+      }
       notifyContentChanged();
     },
 
     insertHyperlink: (url, text) => {
       focusEditor();
-      const label = text || url;
-      document.execCommand('insertHTML', false, `<a href="${url}" target="_blank">${label}</a>`);
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = text || url;
+      const selection = window.getSelection();
+      const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+      if (range) {
+        range.deleteContents();
+        range.insertNode(link);
+      } else {
+        editor.appendChild(link);
+      }
       notifyContentChanged();
     },
 
