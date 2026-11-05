@@ -311,7 +311,8 @@
         wordCount: stats.words,
         charCount: stats.chars,
         paragraphCount: stats.paragraphs,
-        pageCount: stats.pageCount
+        pageCount: stats.pageCount,
+        selectedText: sel ? sel.toString().trim() : ''
       };
 
       if (window.AndroidBridge && window.AndroidBridge.onSelectionChanged) {

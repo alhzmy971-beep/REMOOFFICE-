@@ -41,7 +41,8 @@ class EditorJsBridge(
                 wordCount = obj.optInt("wordCount", 0),
                 charCount = obj.optInt("charCount", 0),
                 paragraphCount = obj.optInt("paragraphCount", 0),
-                pageCount = obj.optInt("pageCount", 1)
+                pageCount = obj.optInt("pageCount", 1),
+                selectedText = obj.optString("selectedText", "")
             )
             mainHandler.post { onStateUpdated(state) }
         } catch (_: Exception) {

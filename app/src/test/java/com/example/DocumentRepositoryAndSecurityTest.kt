@@ -3,12 +3,17 @@ package com.example
 import com.example.bridge.DocxConverter
 import com.example.data.DocumentRepository
 import com.example.model.DocumentComment
+import com.example.model.DocumentBookmark
+import com.example.model.DocumentNote
 import com.example.model.DocumentPayload
+import com.example.model.DocumentProperties
+import com.example.model.DocumentStyle
 import com.example.model.MarginPreset
 import com.example.model.PageConfig
 import com.example.model.PageOrientation
 import com.example.model.PageSize
 import com.example.model.PageTheme
+import com.example.model.TrackedChange
 import com.example.security.HtmlSanitizer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,7 +23,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 class DocumentRepositoryAndSecurityTest {
@@ -68,7 +72,12 @@ class DocumentRepositoryAndSecurityTest {
             ),
             comments = listOf(
                 DocumentComment(id = "c1", quote = "تجريبي", text = "ملاحظة مهمة")
-            )
+            ),
+            trackedChanges = listOf(TrackedChange("change-1", "INSERT", "نص مضاف")),
+            styles = listOf(DocumentStyle("عنوان مخصص", isBold = true)),
+            bookmarks = listOf(DocumentBookmark("bookmark-1", "بداية")),
+            notes = listOf(DocumentNote("note-1", "FOOTNOTE", "حاشية")),
+            properties = DocumentProperties(author = "كاتب الاختبار", title = "عنوان الاختبار", revision = 3)
         )
 
         val saved = repo.createOrUpdateDocument(
@@ -88,6 +97,12 @@ class DocumentRepositoryAndSecurityTest {
         assertEquals(2, loaded.pageConfig.columns)
         assertEquals(1, loaded.comments.size)
         assertEquals("ملاحظة مهمة", loaded.comments.first().text)
+        assertEquals("نص مضاف", loaded.trackedChanges.first().text)
+        assertTrue(loaded.styles.first().isBold)
+        assertEquals("بداية", loaded.bookmarks.first().name)
+        assertEquals("حاشية", loaded.notes.first().text)
+        assertEquals("كاتب الاختبار", loaded.properties.author)
+        assertEquals(3, loaded.properties.revision)
 
         repo.deleteDocument(saved.id)
     }
