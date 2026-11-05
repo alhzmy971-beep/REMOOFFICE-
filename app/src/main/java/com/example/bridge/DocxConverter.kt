@@ -1,10 +1,13 @@
 package com.example.bridge
 
 import android.util.Base64
+import com.example.model.DocumentPayload
 import com.example.model.MarginPreset
 import com.example.model.PageConfig
 import com.example.model.PageOrientation
+import com.example.security.HtmlSanitizer
 import org.apache.poi.util.Units
+import org.apache.poi.xwpf.model.XWPFHeaderFooterPolicy
 import org.apache.poi.xwpf.usermodel.BodyElementType
 import org.apache.poi.xwpf.usermodel.BreakType
 import org.apache.poi.xwpf.usermodel.ParagraphAlignment
@@ -29,11 +32,26 @@ object DocxConverter {
         return BigInteger.valueOf((mm * 56.692913f).toLong())
     }
 
-    fun htmlToDocx(html: String, outputStream: OutputStream, pageConfig: PageConfig) {
+    fun htmlToDocx(payload: DocumentPayload, outputStream: OutputStream) {
         val document = XWPFDocument()
-        configurePageLayout(document, pageConfig)
+        configurePageLayout(document, payload.pageConfig)
 
-        val doc = Jsoup.parseBodyFragment(html)
+        if (payload.headerHtml.isNotBlank() || payload.footerHtml.isNotBlank()) {
+            val policy = XWPFHeaderFooterPolicy(document)
+            if (payload.headerHtml.isNotBlank()) {
+                val header = policy.createHeader(XWPFHeaderFooterPolicy.DEFAULT)
+                val hp = header.createParagraph()
+                hp.createRun().setText(Jsoup.parse(payload.headerHtml).text())
+            }
+            if (payload.footerHtml.isNotBlank()) {
+                val footer = policy.createFooter(XWPFHeaderFooterPolicy.DEFAULT)
+                val fp = footer.createParagraph()
+                fp.createRun().setText(Jsoup.parse(payload.footerHtml).text())
+            }
+        }
+
+        val sanitized = HtmlSanitizer.sanitizeHtml(payload.bodyHtml)
+        val doc = Jsoup.parseBodyFragment(sanitized)
         val body = doc.body()
 
         for (child in body.children()) {
@@ -264,13 +282,20 @@ object DocxConverter {
                 Units.toEMU(220.0)
             )
         } catch (_: Exception) {
-            // Skip malformed image
         }
     }
 
-    fun docxToHtml(inputStream: InputStream): String {
+    fun docxToPayload(inputStream: InputStream): DocumentPayload {
         val document = XWPFDocument(inputStream)
         val sb = StringBuilder()
+
+        val headerHtml = document.headerList.firstOrNull()?.text?.trim()?.let {
+            if (it.isNotEmpty()) "<p>$it</p>" else ""
+        } ?: ""
+
+        val footerHtml = document.footerList.firstOrNull()?.text?.trim()?.let {
+            if (it.isNotEmpty()) "<p>$it</p>" else ""
+        } ?: ""
 
         for (element in document.bodyElements) {
             when (element.elementType) {
@@ -327,6 +352,21 @@ object DocxConverter {
             }
         }
         document.close()
+        val bodyHtml = HtmlSanitizer.sanitizeHtml(sb.toString().ifBlank { "<p><br></p>" })
+        return DocumentPayload(
+            bodyHtml = bodyHtml,
+            headerHtml = headerHtml,
+            footerHtml = footerHtml
+        )
+    }
+
+    fun txtToHtml(inputStream: InputStream): String {
+        val text = inputStream.bufferedReader(Charsets.UTF_8).readText()
+        val sb = StringBuilder()
+        text.lines().forEach { line ->
+            val escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            sb.append("<p>${escaped.ifEmpty { "<br>" }}</p>")
+        }
         return sb.toString().ifBlank { "<p><br></p>" }
     }
 }

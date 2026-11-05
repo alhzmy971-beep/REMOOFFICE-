@@ -12,7 +12,7 @@ import org.json.JSONObject
 
 class EditorJsBridge(
     private val onStateUpdated: (EditorSelectionState) -> Unit,
-    private val onHtmlUpdated: (String) -> Unit
+    private val onContentUpdated: (bodyHtml: String, headerHtml: String, footerHtml: String) -> Unit
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -40,7 +40,8 @@ class EditorJsBridge(
                 formatPainterActive = obj.optBoolean("formatPainterActive", false),
                 wordCount = obj.optInt("wordCount", 0),
                 charCount = obj.optInt("charCount", 0),
-                paragraphCount = obj.optInt("paragraphCount", 0)
+                paragraphCount = obj.optInt("paragraphCount", 0),
+                pageCount = obj.optInt("pageCount", 1)
             )
             mainHandler.post { onStateUpdated(state) }
         } catch (_: Exception) {
@@ -48,8 +49,16 @@ class EditorJsBridge(
     }
 
     @JavascriptInterface
-    fun onContentChanged(html: String) {
-        mainHandler.post { onHtmlUpdated(html) }
+    fun onContentChanged(jsonPayload: String) {
+        try {
+            val obj = JSONObject(jsonPayload)
+            val body = obj.optString("bodyHtml", "<p><br></p>")
+            val header = obj.optString("headerHtml", "")
+            val footer = obj.optString("footerHtml", "")
+            mainHandler.post { onContentUpdated(body, header, footer) }
+        } catch (_: Exception) {
+            mainHandler.post { onContentUpdated(jsonPayload, "", "") }
+        }
     }
 }
 
@@ -161,6 +170,7 @@ object EditorCommands {
             MarginPreset.NORMAL -> "Normal"
             MarginPreset.NARROW -> "Narrow"
             MarginPreset.WIDE -> "Wide"
+            MarginPreset.MIRRORED -> "Normal"
             MarginPreset.CUSTOM -> "Custom"
         }
         val orientName = if (config.orientation.name == "LANDSCAPE") "Landscape" else "Portrait"
@@ -190,8 +200,10 @@ object EditorCommands {
         eval(webView, "window.editorApi.insertHtml($escaped)")
     }
 
-    fun setHtml(webView: WebView?, html: String) {
-        val escaped = JSONObject.quote(html)
-        eval(webView, "window.editorApi.setHtml($escaped)")
+    fun setDocumentPayload(webView: WebView?, bodyHtml: String, headerHtml: String, footerHtml: String) {
+        val b = JSONObject.quote(bodyHtml)
+        val h = JSONObject.quote(headerHtml)
+        val f = JSONObject.quote(footerHtml)
+        eval(webView, "window.editorApi.setDocumentPayload($b, $h, $f)")
     }
 }

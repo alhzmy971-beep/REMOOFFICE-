@@ -10,6 +10,7 @@ enum class EditorTab(val titleAr: String, val titleEn: String) {
 enum class PageSize(val label: String, val widthMm: Int, val heightMm: Int) {
     A4("A4", 210, 297),
     LETTER("Letter", 216, 279),
+    LEGAL("Legal", 216, 356),
     A5("A5", 148, 210)
 }
 
@@ -22,6 +23,7 @@ enum class MarginPreset(val labelAr: String, val mm: Float) {
     NORMAL("عادية", 25.4f),
     NARROW("ضيقة", 12.7f),
     WIDE("واسعة", 38.1f),
+    MIRRORED("معكوسة", 25.4f),
     CUSTOM("مخصصة", 20.0f)
 }
 
@@ -39,7 +41,25 @@ data class PageConfig(
     val marginPreset: MarginPreset = MarginPreset.NORMAL,
     val customMarginMm: Float = 20.0f,
     val columns: Int = 1,
-    val pageTheme: PageTheme = PageTheme.WHITE
+    val pageTheme: PageTheme = PageTheme.WHITE,
+    val watermarkText: String = ""
+)
+
+data class DocumentComment(
+    val id: String,
+    val quote: String,
+    val text: String,
+    val author: String = "المستخدم",
+    val timestamp: Long = System.currentTimeMillis(),
+    val resolved: Boolean = false
+)
+
+data class DocumentPayload(
+    val bodyHtml: String = "<p><br></p>",
+    val headerHtml: String = "",
+    val footerHtml: String = "",
+    val pageConfig: PageConfig = PageConfig(),
+    val comments: List<DocumentComment> = emptyList()
 )
 
 data class EditorSelectionState(
@@ -62,5 +82,6 @@ data class EditorSelectionState(
     val formatPainterActive: Boolean = false,
     val wordCount: Int = 0,
     val charCount: Int = 0,
-    val paragraphCount: Int = 0
+    val paragraphCount: Int = 0,
+    val pageCount: Int = 1
 )
