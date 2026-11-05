@@ -1,5 +1,10 @@
 package com.example.ui.screens
 
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.LocaleList
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,6 +22,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -27,8 +34,14 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -56,6 +69,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,6 +83,7 @@ import androidx.compose.material3.TextButton
 import com.example.R
 import com.example.data.SavedDocument
 import com.example.model.SortOrder
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 @Composable
@@ -79,12 +94,41 @@ fun HomeHubScreen(
     onOpenSavedDocument: (SavedDocument) -> Unit,
     onDeleteSavedDocument: (SavedDocument) -> Unit
 ) {
+    val context = LocalContext.current
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var autoSaveEnabled by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
     var sortOrder by remember { mutableStateOf(SortOrder.DATE_DESC) }
     var docToDelete by remember { mutableStateOf<SavedDocument?>(null) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
+    var showPrivacyDialog by remember { mutableStateOf(false) }
+    var showSupportDialog by remember { mutableStateOf(false) }
+    val languagePrefs = remember(context) {
+        context.getSharedPreferences("remoffice_app_settings", android.content.Context.MODE_PRIVATE)
+    }
+    var appLanguage by remember {
+        mutableStateOf(languagePrefs.getString("app_language", "ar") ?: "ar")
+    }
+
+    fun openDeveloperLink(url: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
+    }
+
+    fun applyLanguage(language: String) {
+        appLanguage = language
+        languagePrefs.edit().putString("app_language", language).apply()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.getSystemService(android.app.LocaleManager::class.java)
+                ?.applicationLocales = LocaleList.forLanguageTags(language)
+        } else {
+            Locale.setDefault(Locale.forLanguageTag(language))
+        }
+        showLanguageDialog = false
+        (context as? Activity)?.recreate()
+    }
 
     val filteredDocuments = remember(documents, searchQuery, sortOrder) {
         val filtered = if (searchQuery.isBlank()) {
@@ -103,7 +147,9 @@ fun HomeHubScreen(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(
-                modifier = Modifier.width(300.dp)
+                modifier = Modifier
+                    .width(300.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
                 Column(
                     modifier = Modifier
@@ -153,6 +199,35 @@ fun HomeHubScreen(
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
 
+                NavigationDrawerItem(
+                    label = {
+                        Column {
+                            Text("لغة التطبيق", fontWeight = FontWeight.SemiBold)
+                            Text(if (appLanguage == "ar") "العربية" else "English", fontSize = 11.sp)
+                        }
+                    },
+                    selected = false,
+                    onClick = { showLanguageDialog = true },
+                    icon = { Icon(Icons.Default.Language, contentDescription = null) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("سياسة الخصوصية") },
+                    selected = false,
+                    onClick = { showPrivacyDialog = true },
+                    icon = { Icon(Icons.Default.Security, contentDescription = null) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("دعم المطور") },
+                    selected = false,
+                    onClick = { showSupportDialog = true },
+                    icon = { Icon(Icons.Default.Favorite, contentDescription = null) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                 NavigationDrawerItem(
@@ -163,8 +238,36 @@ fun HomeHubScreen(
                         }
                     },
                     selected = false,
-                    onClick = {},
+                    onClick = { showSupportDialog = true },
                     icon = { Icon(Icons.Default.Info, contentDescription = null) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+
+                Text(
+                    text = "منصات المطور",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                )
+                NavigationDrawerItem(
+                    label = { Text("قناة المطور على Telegram") },
+                    selected = false,
+                    onClick = { openDeveloperLink("https://t.me/moh_alymani1") },
+                    icon = { Icon(Icons.Default.Campaign, contentDescription = null) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+                NavigationDrawerItem(
+                    label = { Text("مدونة المطور") },
+                    selected = false,
+                    onClick = { openDeveloperLink("https://mohammedalhzmi.blogspot.com") },
+                    icon = { Icon(Icons.Default.Article, contentDescription = null) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+                NavigationDrawerItem(
+                    label = { Text("منصة المطور للذكاء الاصطناعي") },
+                    selected = false,
+                    onClick = { openDeveloperLink("https://mohammed-alhazmi-ai-complete-1.vercel.app/") },
+                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
             }
@@ -474,6 +577,74 @@ fun HomeHubScreen(
                     Text("إلغاء")
                 }
             }
+        )
+    }
+
+    if (showLanguageDialog) {
+        AlertDialog(
+            onDismissRequest = { showLanguageDialog = false },
+            title = { Text("لغة التطبيق") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("اختر لغة واجهة التطبيق. سيتم حفظ اختيارك محليًا على هذا الجهاز.")
+                    FilterChip(
+                        selected = appLanguage == "ar",
+                        onClick = { applyLanguage("ar") },
+                        label = { Text("العربية") }
+                    )
+                    FilterChip(
+                        selected = appLanguage == "en",
+                        onClick = { applyLanguage("en") },
+                        label = { Text("English") }
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { showLanguageDialog = false }) { Text("إغلاق") } }
+        )
+    }
+
+    if (showPrivacyDialog) {
+        AlertDialog(
+            onDismissRequest = { showPrivacyDialog = false },
+            title = { Text("سياسة الخصوصية") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("بياناتك ومستنداتك")
+                    Text("يعمل REMOOFFICE على حفظ المستندات محليًا على جهازك. لا ننشئ حسابًا ولا نرفع مستنداتك تلقائيًا إلى خادم سحابي.")
+                    Text("مساعد الذكاء الاصطناعي")
+                    Text("عند استخدام Gemini، يتم إرسال الطلب الذي تؤكده فقط عبر الإنترنت إلى Google Gemini. يمكنك حذف مفتاح API من إعدادات المساعد.")
+                    Text("الصلاحيات والملفات")
+                    Text("يستخدم التطبيق منتقي ملفات Android لفتح الملفات التي تختارها، ولا يصل إلى ملفات أخرى دون اختيارك.")
+                    Text("التخزين المحلي والنسخ الاحتياطية")
+                    Text("تُحفظ النسخ محليًا، وأي مشاركة أو تصدير يتم فقط بعد اختيارك من نافذة Android.")
+                }
+            },
+            confirmButton = { TextButton(onClick = { showPrivacyDialog = false }) { Text("إغلاق") } }
+        )
+    }
+
+    if (showSupportDialog) {
+        AlertDialog(
+            onDismissRequest = { showSupportDialog = false },
+            title = { Text("دعم المطور") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.jeeb_support_qr),
+                        contentDescription = "رمز دعم المطور عبر محفظة جيب",
+                        modifier = Modifier.size(190.dp)
+                    )
+                    Text("دعمك اختياري ويساعد في تطوير REMOOFFICE.")
+                    Text("يمكنك استخدام محفظة جيب وتحويل الدعم إلى الرقم:")
+                    Text("752490", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                    Text("تأكد من ظهور اسم المستلم محمد عبده علي حسن الحزمي قبل تأكيد أي تحويل. لا يجمع التطبيق بيانات الدفع ولا يعالج التحويلات المالية.")
+                }
+            },
+            confirmButton = { TextButton(onClick = { showSupportDialog = false }) { Text("إغلاق") } }
         )
     }
 }
