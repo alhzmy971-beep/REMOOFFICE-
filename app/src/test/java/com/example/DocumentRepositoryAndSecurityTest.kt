@@ -146,4 +146,72 @@ class DocumentRepositoryAndSecurityTest {
         assertTrue(loaded.bodyHtml.contains("فقرة رقم 499"))
         repo.deleteDocument(saved.id)
     }
+
+    @Test
+    fun editorViewModel_trackChanges_acceptAndRejectFlow() {
+        val vm = com.example.viewmodel.EditorViewModel()
+        assertTrue(!vm.isTrackChangesEnabled.value)
+        vm.toggleTrackChanges()
+        assertTrue(vm.isTrackChangesEnabled.value)
+
+        vm.recordTrackedChange("INSERT", "نص مضاف")
+        vm.recordTrackedChange("DELETE", "نص محذوف")
+        assertEquals(2, vm.documentPayload.value.trackedChanges.size)
+
+        val firstId = vm.documentPayload.value.trackedChanges[0].id
+        vm.acceptTrackedChange(firstId)
+        assertEquals("ACCEPTED", vm.documentPayload.value.trackedChanges[0].status)
+
+        vm.rejectAllTrackedChanges()
+        assertEquals("REJECTED", vm.documentPayload.value.trackedChanges[1].status)
+    }
+
+    @Test
+    fun editorViewModel_stylesBookmarksNotesCommentsPropertiesAndToc() {
+        val vm = com.example.viewmodel.EditorViewModel()
+
+        // Styles
+        val style = com.example.model.DocumentStyle(name = "عنوان مخصص", fontSizePt = 20, isBold = true)
+        vm.saveCustomStyle(style)
+        assertEquals(1, vm.documentPayload.value.styles.size)
+        vm.deleteCustomStyle("عنوان مخصص")
+        assertEquals(0, vm.documentPayload.value.styles.size)
+
+        // Bookmarks (unique check)
+        val bm1 = vm.addBookmark("المقدمة")
+        assertTrue(bm1 != null)
+        val duplicateBm = vm.addBookmark("المقدمة")
+        assertTrue(duplicateBm == null)
+        vm.deleteBookmark(bm1!!.id)
+        assertEquals(0, vm.documentPayload.value.bookmarks.size)
+
+        // Notes
+        val n1 = vm.addNote("FOOTNOTE", "حاشية سفلية أولى")
+        val n2 = vm.addNote("ENDNOTE", "حاشية ختامية ثانية")
+        assertEquals(1, n1)
+        assertEquals(2, n2)
+        assertEquals(2, vm.documentPayload.value.notes.size)
+
+        // Comments
+        vm.addComment("نص محدد", "تعليق أول")
+        val cId = vm.documentPayload.value.comments.first().id
+        vm.replyToComment(cId, "رد على التعليق")
+        assertTrue(vm.documentPayload.value.comments.first().text.contains("رد على التعليق"))
+        vm.toggleResolveComment(cId)
+        assertTrue(vm.documentPayload.value.comments.first().resolved)
+
+        // Properties
+        vm.updateDocumentProperties(
+            com.example.model.DocumentProperties(author = "محمد الحزمي", title = "تقرير سنوي", subject = "تقنية")
+        )
+        assertEquals("محمد الحزمي", vm.documentPayload.value.properties.author)
+        assertEquals(2, vm.documentPayload.value.properties.revision)
+
+        // TOC
+        vm.updateHtmlParts("<h1>الفصل الأول</h1><p>نص</p><h2>المبحث الأول</h2>", "", "")
+        val toc = vm.buildTableOfContentsHtml()
+        assertTrue(toc.contains("جدول المحتويات"))
+        assertTrue(toc.contains("الفصل الأول"))
+        assertTrue(toc.contains("المبحث الأول"))
+    }
 }
