@@ -4,15 +4,21 @@ import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import com.example.model.DocumentAnchor
+import com.example.model.DocumentBookmark
+import com.example.model.DocumentNote
+import com.example.model.DocumentStyle
 import com.example.model.EditorSelectionState
 import com.example.model.MarginPreset
 import com.example.model.PageConfig
 import com.example.model.PageTheme
+import com.example.model.TrackedChange
 import org.json.JSONObject
 
 class EditorJsBridge(
     private val onStateUpdated: (EditorSelectionState) -> Unit,
-    private val onContentUpdated: (bodyHtml: String, headerHtml: String, footerHtml: String) -> Unit
+    private val onContentUpdated: (bodyHtml: String, headerHtml: String, footerHtml: String) -> Unit,
+    private val onTrackedChangeCreated: ((TrackedChange) -> Unit)? = null
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -59,6 +65,38 @@ class EditorJsBridge(
             mainHandler.post { onContentUpdated(body, header, footer) }
         } catch (_: Exception) {
             mainHandler.post { onContentUpdated(jsonPayload, "", "") }
+        }
+    }
+
+    @JavascriptInterface
+    fun onTrackedChange(json: String) {
+        try {
+            val obj = JSONObject(json)
+            val anchorObj = obj.optJSONObject("anchor")
+            val anchor = anchorObj?.let {
+                DocumentAnchor(
+                    elementId = it.optString("elementId", ""),
+                    startOffset = it.optInt("startOffset", 0),
+                    endOffset = it.optInt("endOffset", 0),
+                    quotedText = it.optString("quotedText", "")
+                )
+            }
+            val change = TrackedChange(
+                id = obj.optString("id", ""),
+                type = obj.optString("type", "INSERT"),
+                elementId = obj.optString("elementId", ""),
+                anchor = anchor,
+                oldText = obj.optString("oldText", ""),
+                newText = obj.optString("newText", ""),
+                oldHtml = obj.optString("oldHtml", ""),
+                newHtml = obj.optString("newHtml", ""),
+                author = obj.optString("author", "المستخدم"),
+                timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+                status = obj.optString("status", "PENDING"),
+                createdByUser = obj.optBoolean("createdByUser", true)
+            )
+            mainHandler.post { onTrackedChangeCreated?.invoke(change) }
+        } catch (_: Exception) {
         }
     }
 }
@@ -206,5 +244,140 @@ object EditorCommands {
         val h = JSONObject.quote(headerHtml)
         val f = JSONObject.quote(footerHtml)
         eval(webView, "window.editorApi.setDocumentPayload($b, $h, $f)")
+    }
+
+    // --- Track Changes Commands ---
+    fun setTrackChangesEnabled(webView: WebView?, enabled: Boolean) =
+        eval(webView, "window.editorApi.setTrackChangesEnabled($enabled)")
+
+    fun acceptTrackedChange(webView: WebView?, id: String) {
+        val escaped = JSONObject.quote(id)
+        eval(webView, "window.editorApi.acceptTrackedChange($escaped)")
+    }
+
+    fun rejectTrackedChange(webView: WebView?, id: String) {
+        val escaped = JSONObject.quote(id)
+        eval(webView, "window.editorApi.rejectTrackedChange($escaped)")
+    }
+
+    fun acceptAllTrackedChanges(webView: WebView?) =
+        eval(webView, "window.editorApi.acceptAllTrackedChanges()")
+
+    fun rejectAllTrackedChanges(webView: WebView?) =
+        eval(webView, "window.editorApi.rejectAllTrackedChanges()")
+
+    fun goToNextTrackedChange(webView: WebView?) =
+        eval(webView, "window.editorApi.goToNextTrackedChange()")
+
+    fun goToPreviousTrackedChange(webView: WebView?) =
+        eval(webView, "window.editorApi.goToPreviousTrackedChange()")
+
+    // --- Comment Commands ---
+    fun createCommentAnchor(webView: WebView?, commentId: String) {
+        val escaped = JSONObject.quote(commentId)
+        eval(webView, "window.editorApi.createCommentAnchor($escaped)")
+    }
+
+    fun selectCommentAnchor(webView: WebView?, commentId: String) {
+        val escaped = JSONObject.quote(commentId)
+        eval(webView, "window.editorApi.selectCommentAnchor($escaped)")
+    }
+
+    fun removeCommentAnchor(webView: WebView?, commentId: String) {
+        val escaped = JSONObject.quote(commentId)
+        eval(webView, "window.editorApi.removeCommentAnchor($escaped)")
+    }
+
+    fun setCommentResolved(webView: WebView?, commentId: String, resolved: Boolean) {
+        val escaped = JSONObject.quote(commentId)
+        eval(webView, "window.editorApi.setCommentResolved($escaped, $resolved)")
+    }
+
+    // --- Style Commands ---
+    fun applyStyle(webView: WebView?, style: DocumentStyle) {
+        val json = JSONObject().apply {
+            put("name", style.name)
+            put("htmlTag", style.htmlTag)
+            put("fontFamily", style.fontFamily)
+            put("fontSizePt", style.fontSizePt)
+            put("colorHex", style.colorHex)
+            put("isBold", style.isBold)
+            put("isItalic", style.isItalic)
+            put("isUnderline", style.isUnderline)
+            put("alignment", style.alignment)
+            put("dir", style.dir)
+            put("lineHeight", style.lineHeight)
+        }.toString()
+        val escaped = JSONObject.quote(json)
+        eval(webView, "window.editorApi.applyStyle($escaped)")
+    }
+
+    // --- Notes Commands ---
+    fun insertFootnote(webView: WebView?, note: DocumentNote) {
+        val json = JSONObject().apply {
+            put("id", note.id)
+            put("number", note.number)
+            put("text", note.text)
+            put("type", note.type)
+        }.toString()
+        val escaped = JSONObject.quote(json)
+        eval(webView, "window.editorApi.insertFootnote($escaped)")
+    }
+
+    fun deleteNote(webView: WebView?, noteId: String) {
+        val escaped = JSONObject.quote(noteId)
+        eval(webView, "window.editorApi.deleteNote($escaped)")
+    }
+
+    // --- Bookmark Commands ---
+    fun addBookmark(webView: WebView?, bm: DocumentBookmark) {
+        val json = JSONObject().apply {
+            put("id", bm.id)
+            put("name", bm.name)
+        }.toString()
+        val escaped = JSONObject.quote(json)
+        eval(webView, "window.editorApi.addBookmark($escaped)")
+    }
+
+    fun deleteBookmark(webView: WebView?, id: String) {
+        val escaped = JSONObject.quote(id)
+        eval(webView, "window.editorApi.deleteBookmark($escaped)")
+    }
+
+    fun goToBookmark(webView: WebView?, id: String) {
+        val escaped = JSONObject.quote(id)
+        eval(webView, "window.editorApi.goToBookmark($escaped)")
+    }
+
+    fun insertInternalLink(webView: WebView?, bookmarkId: String, text: String) {
+        val bmId = JSONObject.quote(bookmarkId)
+        val txt = JSONObject.quote(text)
+        eval(webView, "window.editorApi.insertInternalLink($bmId, $txt)")
+    }
+
+    // --- Table of Contents Commands ---
+    fun insertTableOfContents(webView: WebView?) =
+        eval(webView, "window.editorApi.insertTableOfContents()")
+
+    fun updateTableOfContents(webView: WebView?) =
+        eval(webView, "window.editorApi.updateTableOfContents()")
+
+    fun removeTableOfContents(webView: WebView?) =
+        eval(webView, "window.editorApi.removeTableOfContents()")
+
+    fun goToHeading(webView: WebView?, id: String) {
+        val escaped = JSONObject.quote(id)
+        eval(webView, "window.editorApi.goToHeading($escaped)")
+    }
+
+    fun scrollToAnchor(webView: WebView?, anchor: DocumentAnchor) {
+        val json = JSONObject().apply {
+            put("elementId", anchor.elementId)
+            put("startOffset", anchor.startOffset)
+            put("endOffset", anchor.endOffset)
+            put("quotedText", anchor.quotedText)
+        }.toString()
+        val escaped = JSONObject.quote(json)
+        eval(webView, "window.editorApi.scrollToAnchor($escaped)")
     }
 }

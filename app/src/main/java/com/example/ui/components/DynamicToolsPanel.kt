@@ -23,10 +23,12 @@ import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
 import androidx.compose.material.icons.automirrored.filled.FormatIndentDecrease
 import androidx.compose.material.icons.automirrored.filled.FormatIndentIncrease
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.MergeType
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Category
@@ -46,13 +48,17 @@ import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.HorizontalRule
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InsertPageBreak
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.RemoveCircleOutline
+import androidx.compose.material.icons.filled.StickyNote2
+import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.Subscript
 import androidx.compose.material.icons.filled.Superscript
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -140,6 +146,9 @@ fun DynamicToolsPanel(
     onToggleImageBorder: () -> Unit = {},
     onToggleImageRounded: () -> Unit = {},
     onDeleteSelectedImage: () -> Unit = {},
+    onOpenBookmarkDialog: () -> Unit = {},
+    onOpenNoteDialog: () -> Unit = {},
+    onInsertTableOfContents: () -> Unit = {},
     // Layout actions
     onSelectMarginPreset: (MarginPreset) -> Unit,
     onOpenCustomMarginDialog: () -> Unit,
@@ -154,7 +163,10 @@ fun DynamicToolsPanel(
     onSaveDocx: () -> Unit = {},
     onSharePdf: () -> Unit = {},
     onOpenDocx: () -> Unit = {},
-    onRenameDoc: () -> Unit = {}
+    onRenameDoc: () -> Unit = {},
+    onOpenTrackedChangesPanel: () -> Unit = {},
+    onOpenStylesDialog: () -> Unit = {},
+    onOpenDocPropertiesDialog: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -215,7 +227,10 @@ fun DynamicToolsPanel(
                     onAlignImage = onAlignImage,
                     onToggleImageBorder = onToggleImageBorder,
                     onToggleImageRounded = onToggleImageRounded,
-                    onDeleteSelectedImage = onDeleteSelectedImage
+                    onDeleteSelectedImage = onDeleteSelectedImage,
+                    onOpenBookmarkDialog = onOpenBookmarkDialog,
+                    onOpenNoteDialog = onOpenNoteDialog,
+                    onInsertTableOfContents = onInsertTableOfContents
                 )
                 EditorTab.LAYOUT -> LayoutToolsContent(
                     pageConfig = pageConfig,
@@ -230,12 +245,16 @@ fun DynamicToolsPanel(
                     onSaveDocx = onSaveDocx,
                     onSharePdf = onSharePdf,
                     onOpenDocx = onOpenDocx,
-                    onRenameDoc = onRenameDoc
+                    onRenameDoc = onRenameDoc,
+                    onOpenDocPropertiesDialog = onOpenDocPropertiesDialog
                 )
                 EditorTab.REVIEW -> ReviewToolsContent(
                     state = selectionState,
                     onOpenFindReplaceDialog = onOpenFindReplaceDialog,
-                    onOpenCommentDialog = onOpenCommentDialog
+                    onOpenCommentDialog = onOpenCommentDialog,
+                    onOpenTrackedChangesPanel = onOpenTrackedChangesPanel,
+                    onOpenStylesDialog = onOpenStylesDialog,
+                    onOpenDocPropertiesDialog = onOpenDocPropertiesDialog
                 )
                 EditorTab.VIEW -> ViewToolsContent(
                     state = selectionState,
@@ -542,7 +561,10 @@ private fun InsertToolsContent(
     onAlignImage: (String) -> Unit,
     onToggleImageBorder: () -> Unit,
     onToggleImageRounded: () -> Unit,
-    onDeleteSelectedImage: () -> Unit
+    onDeleteSelectedImage: () -> Unit,
+    onOpenBookmarkDialog: () -> Unit,
+    onOpenNoteDialog: () -> Unit,
+    onInsertTableOfContents: () -> Unit
 ) {
     var shapesMenuExpanded by remember { mutableStateOf(false) }
     var stampsMenuExpanded by remember { mutableStateOf(false) }
@@ -581,6 +603,9 @@ private fun InsertToolsContent(
 
             ActionChipButton(Icons.Default.TextFields, "مربع نص", onOpenTextBoxDialog, "insert_textbox")
             ActionChipButton(Icons.Default.Link, "رابط", onOpenHyperlinkDialog, "insert_link")
+            ActionChipButton(Icons.Default.Bookmark, "علامة مرجعية", onOpenBookmarkDialog, "insert_bookmark")
+            ActionChipButton(Icons.Default.StickyNote2, "حاشية / ملاحظة", onOpenNoteDialog, "insert_note")
+            ActionChipButton(Icons.AutoMirrored.Filled.ListAlt, "جدول المحتويات", onInsertTableOfContents, "insert_toc")
             ActionChipButton(Icons.Default.InsertPageBreak, "فاصل صفحة", onInsertPageBreak, "insert_page_break")
             ActionChipButton(Icons.Default.Numbers, "رقم الصفحة", onInsertPageNumber, "insert_page_number")
             ActionChipButton(Icons.Default.CalendarToday, "التاريخ", onInsertDateTime, "insert_date")
@@ -740,7 +765,8 @@ private fun FileToolsContent(
     onSaveDocx: () -> Unit,
     onSharePdf: () -> Unit,
     onOpenDocx: () -> Unit,
-    onRenameDoc: () -> Unit
+    onRenameDoc: () -> Unit,
+    onOpenDocPropertiesDialog: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -754,6 +780,7 @@ private fun FileToolsContent(
         ActionChipButton(Icons.Default.Category, "تصدير / طباعة PDF", onSharePdf, "file_export_pdf")
         ActionChipButton(Icons.Default.Image, "فتح مستند", onOpenDocx, "file_open_doc")
         ActionChipButton(Icons.Default.TextFields, "إعادة تسمية", onRenameDoc, "file_rename_doc")
+        ActionChipButton(Icons.Default.Info, "خصائص المستند", onOpenDocPropertiesDialog, "file_doc_properties")
     }
 }
 
@@ -761,7 +788,10 @@ private fun FileToolsContent(
 private fun ReviewToolsContent(
     state: EditorSelectionState,
     onOpenFindReplaceDialog: () -> Unit,
-    onOpenCommentDialog: () -> Unit
+    onOpenCommentDialog: () -> Unit,
+    onOpenTrackedChangesPanel: () -> Unit,
+    onOpenStylesDialog: () -> Unit,
+    onOpenDocPropertiesDialog: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -773,6 +803,9 @@ private fun ReviewToolsContent(
     ) {
         ActionChipButton(Icons.Default.FindReplace, "بحث واستبدال", onOpenFindReplaceDialog, "find_replace_button")
         ActionChipButton(Icons.Default.TextFields, "إضافة تعليق", onOpenCommentDialog, "review_add_comment")
+        ActionChipButton(Icons.Default.TrackChanges, "تتبع التغييرات", onOpenTrackedChangesPanel, "review_tracked_changes")
+        ActionChipButton(Icons.Default.Style, "أنماط المستند", onOpenStylesDialog, "review_styles")
+        ActionChipButton(Icons.Default.Info, "خصائص المستند", onOpenDocPropertiesDialog, "review_doc_properties")
 
         Surface(
             color = MaterialTheme.colorScheme.surface,

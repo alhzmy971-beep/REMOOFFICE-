@@ -53,28 +53,51 @@ data class PageConfig(
     val watermarkText: String = ""
 )
 
+data class DocumentAnchor(
+    val elementId: String = "",
+    val startOffset: Int = 0,
+    val endOffset: Int = 0,
+    val quotedText: String = ""
+)
+
+data class CommentReply(
+    val id: String,
+    val author: String = "المستخدم",
+    val text: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 data class DocumentComment(
     val id: String,
-    val quote: String,
-    val text: String,
+    val quote: String = "",
+    val text: String = "",
     val author: String = "المستخدم",
     val timestamp: Long = System.currentTimeMillis(),
-    val resolved: Boolean = false
+    val resolved: Boolean = false,
+    val anchor: DocumentAnchor? = null,
+    val replies: List<CommentReply> = emptyList()
 )
 
 data class TrackedChange(
     val id: String,
     val type: String, // "INSERT", "DELETE", "FORMAT"
-    val text: String,
+    val elementId: String = "",
+    val anchor: DocumentAnchor? = null,
+    val oldText: String = "",
+    val newText: String = "",
+    val oldHtml: String = "",
+    val newHtml: String = "",
     val author: String = "المستخدم",
     val timestamp: Long = System.currentTimeMillis(),
-    val status: String = "PENDING" // "PENDING", "ACCEPTED", "REJECTED"
+    val status: String = "PENDING", // "PENDING", "ACCEPTED", "REJECTED"
+    val createdByUser: Boolean = true
 )
 
 data class DocumentProperties(
     val author: String = "المستخدم",
     val title: String = "",
     val subject: String = "",
+    val keywords: String = "",
     val creationDate: Long = System.currentTimeMillis(),
     val modificationDate: Long = System.currentTimeMillis(),
     val revision: Int = 1
@@ -82,23 +105,31 @@ data class DocumentProperties(
 
 data class DocumentStyle(
     val name: String,
+    val htmlTag: String = "p",
     val fontFamily: String = "Arial",
     val fontSizePt: Int = 14,
     val colorHex: String = "#1E293B",
     val isBold: Boolean = false,
-    val isItalic: Boolean = false
+    val isItalic: Boolean = false,
+    val isUnderline: Boolean = false,
+    val alignment: String = "left",
+    val dir: String = "rtl",
+    val lineHeight: String = "1.5"
 )
 
 data class DocumentBookmark(
     val id: String,
     val name: String,
+    val anchor: DocumentAnchor? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
 
 data class DocumentNote(
     val id: String,
     val type: String = "FOOTNOTE", // "FOOTNOTE" or "ENDNOTE"
-    val text: String
+    val text: String,
+    val number: Int = 1,
+    val anchor: DocumentAnchor? = null
 )
 
 data class DocumentPayload(

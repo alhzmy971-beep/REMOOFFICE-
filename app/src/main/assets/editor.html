@@ -201,6 +201,59 @@
     display: inline-block;
   }
 
+  ins.remoffice-insert {
+    background-color: #DCFCE7;
+    color: #166534;
+    text-decoration: underline;
+    padding: 1px 3px;
+    border-radius: 2px;
+  }
+
+  del.remoffice-delete {
+    background-color: #FEE2E2;
+    color: #991B1B;
+    text-decoration: line-through;
+    padding: 1px 3px;
+    border-radius: 2px;
+  }
+
+  mark.remoffice-comment-anchor {
+    background-color: #FEF08A;
+    border-bottom: 2px solid #D97706;
+    padding: 1px 3px;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+
+  mark.remoffice-comment-anchor.resolved {
+    background-color: #E2E8F0;
+    border-bottom-color: #94A3B8;
+  }
+
+  sup.remoffice-note-reference {
+    color: #1A56DB;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 0 2px;
+  }
+
+  span.remoffice-bookmark {
+    border-inline-start: 3px solid #7C3AED;
+    margin: 0 2px;
+    display: inline-block;
+    width: 0;
+    height: 1em;
+    vertical-align: middle;
+  }
+
+  .remoffice-toc-box {
+    border: 1px solid #CBD5E1;
+    background: #F8FAFC;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin: 12px 0;
+  }
+
   @media print {
     html, body { background: #FFFFFF; }
     .workspace { padding: 0; transform: none; }
@@ -741,6 +794,52 @@
       return count;
     },
 
+    // --- Anchors & Selection ---
+    ensureElementIds: () => ensureElementIds(),
+    getCurrentSelectionAnchor: () => getCurrentSelectionAnchor(),
+    scrollToAnchor: (json) => scrollToAnchor(json),
+    selectAnchor: (json) => selectAnchor(json),
+
+    // --- Track Changes ---
+    setTrackChangesEnabled: (enabled) => setTrackChangesEnabled(enabled),
+    acceptTrackedChange: (id) => acceptTrackedChange(id),
+    rejectTrackedChange: (id) => rejectTrackedChange(id),
+    acceptAllTrackedChanges: () => acceptAllTrackedChanges(),
+    rejectAllTrackedChanges: () => rejectAllTrackedChanges(),
+    goToNextTrackedChange: () => goToNextTrackedChange(),
+    goToPreviousTrackedChange: () => goToPreviousTrackedChange(),
+
+    // --- Comment Anchors ---
+    createCommentAnchor: (commentId) => createCommentAnchor(commentId),
+    selectCommentAnchor: (commentId) => selectCommentAnchor(commentId),
+    removeCommentAnchor: (commentId) => removeCommentAnchor(commentId),
+    setCommentResolved: (commentId, resolved) => setCommentResolved(commentId, resolved),
+    scrollToComment: (commentId) => selectCommentAnchor(commentId),
+
+    // --- Styles ---
+    applyStyle: (styleJson) => applyStyle(styleJson),
+
+    // --- Footnotes & Endnotes ---
+    insertFootnote: (noteJson) => insertFootnote(noteJson),
+    insertEndnote: (noteJson) => insertFootnote(noteJson),
+    deleteNote: (noteId) => deleteNote(noteId),
+    renumberNotes: () => renumberNotes(),
+    scrollToNote: (noteId) => scrollToNote(noteId),
+    scrollToNoteReference: (noteId) => scrollToNoteReference(noteId),
+
+    // --- Bookmarks & Internal Links ---
+    addBookmark: (bookmarkJson) => addBookmark(bookmarkJson),
+    renameBookmark: (id, newName) => renameBookmark(id, newName),
+    deleteBookmark: (id) => deleteBookmark(id),
+    goToBookmark: (id) => goToBookmark(id),
+    insertInternalLink: (bookmarkId, text) => insertInternalLink(bookmarkId, text),
+
+    // --- Table of Contents ---
+    insertTableOfContents: () => insertTableOfContents(),
+    updateTableOfContents: () => updateTableOfContents(),
+    removeTableOfContents: () => removeTableOfContents(),
+    goToHeading: (id) => goToHeading(id),
+
     setReadMode: (enabled) => {
       editor.setAttribute('contenteditable', enabled ? 'false' : 'true');
       document.getElementById('pageHeader').setAttribute('contenteditable', enabled ? 'false' : 'true');
@@ -765,9 +864,419 @@
       editor.innerHTML = bodyHtml || '<p><br></p>';
       document.getElementById('pageHeader').innerHTML = headerHtml || '';
       document.getElementById('pageFooter').innerHTML = footerHtml || '';
+      ensureElementIds();
       notifySelectionState();
     }
   };
+
+  // --- Implementations ---
+  let elementIdCounter = 1;
+  function ensureElementIds() {
+    const blocks = editor.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, div.text-box');
+    blocks.forEach(el => {
+      if (!el.getAttribute('data-remoffice-id')) {
+        el.setAttribute('data-remoffice-id', 'remo_' + elementIdCounter++);
+      }
+    });
+  }
+
+  function getCurrentSelectionAnchor() {
+    ensureElementIds();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    let node = range.startContainer;
+    let el = node.nodeType === 1 ? node : node.parentElement;
+    while (el && el !== editor && !el.getAttribute('data-remoffice-id')) {
+      el = el.parentElement;
+    }
+    if (!el || el === editor) {
+      el = range.startContainer.parentElement;
+    }
+    const elementId = el ? (el.getAttribute('data-remoffice-id') || '') : '';
+    return {
+      elementId: elementId,
+      startOffset: range.startOffset,
+      endOffset: range.endOffset,
+      quotedText: sel.toString().trim()
+    };
+  }
+
+  function findElementByRemofficeId(id) {
+    if (!id) return null;
+    return editor.querySelector(`[data-remoffice-id="${id}"]`);
+  }
+
+  function scrollToAnchor(anchorJson) {
+    let anchor = typeof anchorJson === 'string' ? JSON.parse(anchorJson) : anchorJson;
+    if (!anchor || !anchor.elementId) return;
+    const el = findElementByRemofficeId(anchor.elementId);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.style.transition = 'background-color 0.5s';
+      const origBg = el.style.backgroundColor;
+      el.style.backgroundColor = '#FEF08A';
+      setTimeout(() => { el.style.backgroundColor = origBg; }, 1500);
+    }
+  }
+
+  function selectAnchor(anchorJson) {
+    let anchor = typeof anchorJson === 'string' ? JSON.parse(anchorJson) : anchorJson;
+    if (!anchor || !anchor.elementId) return;
+    const el = findElementByRemofficeId(anchor.elementId);
+    if (el) {
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }
+
+  // --- Track Changes ---
+  let trackChangesEnabled = false;
+  let isApplyingTrackChange = false;
+
+  function setTrackChangesEnabled(enabled) {
+    trackChangesEnabled = Boolean(enabled);
+    ensureElementIds();
+  }
+
+  function acceptTrackedChange(id) {
+    isApplyingTrackChange = true;
+    const ins = editor.querySelector(`ins[data-remoffice-change-id="${id}"]`);
+    if (ins) {
+      const parent = ins.parentNode;
+      while (ins.firstChild) parent.insertBefore(ins.firstChild, ins);
+      parent.removeChild(ins);
+    }
+    const del = editor.querySelector(`del[data-remoffice-change-id="${id}"]`);
+    if (del) {
+      del.parentNode.removeChild(del);
+    }
+    isApplyingTrackChange = false;
+    notifyContentChanged();
+  }
+
+  function rejectTrackedChange(id) {
+    isApplyingTrackChange = true;
+    const ins = editor.querySelector(`ins[data-remoffice-change-id="${id}"]`);
+    if (ins) {
+      ins.parentNode.removeChild(ins);
+    }
+    const del = editor.querySelector(`del[data-remoffice-change-id="${id}"]`);
+    if (del) {
+      const parent = del.parentNode;
+      while (del.firstChild) parent.insertBefore(del.firstChild, del);
+      parent.removeChild(del);
+    }
+    isApplyingTrackChange = false;
+    notifyContentChanged();
+  }
+
+  function acceptAllTrackedChanges() {
+    isApplyingTrackChange = true;
+    const insList = editor.querySelectorAll('ins[data-remoffice-change-id]');
+    insList.forEach(ins => {
+      const parent = ins.parentNode;
+      while (ins.firstChild) parent.insertBefore(ins.firstChild, ins);
+      parent.removeChild(ins);
+    });
+    const delList = editor.querySelectorAll('del[data-remoffice-change-id]');
+    delList.forEach(del => del.parentNode.removeChild(del));
+    isApplyingTrackChange = false;
+    notifyContentChanged();
+  }
+
+  function rejectAllTrackedChanges() {
+    isApplyingTrackChange = true;
+    const insList = editor.querySelectorAll('ins[data-remoffice-change-id]');
+    insList.forEach(ins => ins.parentNode.removeChild(ins));
+    const delList = editor.querySelectorAll('del[data-remoffice-change-id]');
+    delList.forEach(del => {
+      const parent = del.parentNode;
+      while (del.firstChild) parent.insertBefore(del.firstChild, del);
+      parent.removeChild(del);
+    });
+    isApplyingTrackChange = false;
+    notifyContentChanged();
+  }
+
+  function goToNextTrackedChange() {
+    const el = editor.querySelector('ins[data-remoffice-change-id], del[data-remoffice-change-id]');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function goToPreviousTrackedChange() {
+    const list = editor.querySelectorAll('ins[data-remoffice-change-id], del[data-remoffice-change-id]');
+    if (list.length > 0) list[list.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // --- Comments ---
+  function createCommentAnchor(commentId) {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    const text = sel.toString().trim();
+    if (!text) return null;
+
+    const mark = document.createElement('mark');
+    mark.setAttribute('data-remoffice-comment-id', commentId);
+    mark.className = 'remoffice-comment-anchor';
+    try {
+      range.surroundContents(mark);
+    } catch (e) {
+      const frag = range.extractContents();
+      mark.appendChild(frag);
+      range.insertNode(mark);
+    }
+    notifyContentChanged();
+    return {
+      commentId: commentId,
+      quotedText: text,
+      anchor: getCurrentSelectionAnchor()
+    };
+  }
+
+  function selectCommentAnchor(commentId) {
+    const mark = editor.querySelector(`mark[data-remoffice-comment-id="${commentId}"]`);
+    if (mark) {
+      mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(mark);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }
+
+  function removeCommentAnchor(commentId) {
+    const mark = editor.querySelector(`mark[data-remoffice-comment-id="${commentId}"]`);
+    if (mark) {
+      const parent = mark.parentNode;
+      while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+      parent.removeChild(mark);
+      notifyContentChanged();
+    }
+  }
+
+  // --- Styles ---
+  function applyStyle(styleJson) {
+    focusEditor();
+    let style = typeof styleJson === 'string' ? JSON.parse(styleJson) : styleJson;
+    if (!style || !style.name) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    let node = sel.getRangeAt(0).startContainer;
+    let block = node.nodeType === 1 ? node : node.parentElement;
+    while (block && block !== editor && !['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE'].includes(block.tagName)) {
+      block = block.parentElement;
+    }
+    if (!block || block === editor) {
+      block = document.createElement(style.htmlTag || 'p');
+      block.innerHTML = sel.toString() || '<br>';
+      editor.appendChild(block);
+    } else if (style.htmlTag && block.tagName.toLowerCase() !== style.htmlTag.toLowerCase()) {
+      const newBlock = document.createElement(style.htmlTag);
+      newBlock.innerHTML = block.innerHTML;
+      block.parentNode.replaceChild(newBlock, block);
+      block = newBlock;
+    }
+
+    block.setAttribute('data-remoffice-style', style.name);
+    if (style.fontFamily) block.style.fontFamily = style.fontFamily;
+    if (style.fontSizePt) block.style.fontSize = style.fontSizePt + 'pt';
+    if (style.colorHex) block.style.color = style.colorHex;
+    block.style.fontWeight = style.isBold ? 'bold' : 'normal';
+    block.style.fontStyle = style.isItalic ? 'italic' : 'normal';
+    block.style.textDecoration = style.isUnderline ? 'underline' : 'none';
+    if (style.alignment) block.style.textAlign = style.alignment;
+    if (style.dir) block.style.direction = style.dir;
+    if (style.lineHeight) block.style.lineHeight = style.lineHeight;
+
+    notifyContentChanged();
+  }
+
+  // --- Notes (Footnotes & Endnotes) ---
+  function insertFootnote(noteJson) {
+    focusEditor();
+    let note = typeof noteJson === 'string' ? JSON.parse(noteJson) : noteJson;
+    if (!note || !note.id) return;
+
+    const sup = document.createElement('sup');
+    sup.setAttribute('data-remoffice-note-id', note.id);
+    sup.className = 'remoffice-note-reference';
+    sup.textContent = String(note.number || 1);
+    sup.onclick = function() { scrollToNote(note.id); };
+
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      range.insertNode(sup);
+    } else {
+      editor.appendChild(sup);
+    }
+
+    let notesContainer = document.getElementById('footnotesContainer');
+    if (!notesContainer) {
+      notesContainer = document.createElement('div');
+      notesContainer.id = 'footnotesContainer';
+      notesContainer.style.cssText = 'margin-top:24px;border-top:1px dashed #CBD5E1;padding-top:12px;font-size:10pt;color:#475569;';
+      notesContainer.innerHTML = '<b>الحواشي السفلية / Footnotes:</b>';
+      pageContainer.appendChild(notesContainer);
+    }
+
+    const noteItem = document.createElement('div');
+    noteItem.setAttribute('data-remoffice-note-item-id', note.id);
+    noteItem.style.margin = '4px 0';
+    noteItem.innerHTML = `<sup>${note.number || 1}</sup> ${note.text} <a href="#" style="font-size:9pt;margin-inline-start:6px;" onclick="window.editorApi.scrollToNoteReference('${note.id}');return false;">[رجوع]</a>`;
+    notesContainer.appendChild(noteItem);
+
+    renumberNotes();
+    notifyContentChanged();
+  }
+
+  function scrollToNote(noteId) {
+    const item = document.querySelector(`[data-remoffice-note-item-id="${noteId}"]`);
+    if (item) item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function scrollToNoteReference(noteId) {
+    const ref = editor.querySelector(`sup[data-remoffice-note-id="${noteId}"]`);
+    if (ref) ref.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function deleteNote(noteId) {
+    const ref = editor.querySelector(`sup[data-remoffice-note-id="${noteId}"]`);
+    if (ref) ref.parentNode.removeChild(ref);
+    const item = document.querySelector(`[data-remoffice-note-item-id="${noteId}"]`);
+    if (item) item.parentNode.removeChild(item);
+    renumberNotes();
+    notifyContentChanged();
+  }
+
+  function renumberNotes() {
+    const refs = editor.querySelectorAll('sup.remoffice-note-reference');
+    refs.forEach((ref, idx) => {
+      const num = idx + 1;
+      ref.textContent = String(num);
+      const noteId = ref.getAttribute('data-remoffice-note-id');
+      const item = document.querySelector(`[data-remoffice-note-item-id="${noteId}"]`);
+      if (item && item.querySelector('sup')) {
+        item.querySelector('sup').textContent = String(num);
+      }
+    });
+  }
+
+  // --- Bookmarks & Internal Links ---
+  function addBookmark(bookmarkJson) {
+    focusEditor();
+    let bm = typeof bookmarkJson === 'string' ? JSON.parse(bookmarkJson) : bookmarkJson;
+    if (!bm || !bm.id || !bm.name) return;
+
+    const span = document.createElement('span');
+    span.setAttribute('data-remoffice-bookmark-id', bm.id);
+    span.setAttribute('data-remoffice-bookmark-name', bm.name);
+    span.className = 'remoffice-bookmark';
+    span.title = `Bookmark: ${bm.name}`;
+
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      range.insertNode(span);
+    } else {
+      editor.appendChild(span);
+    }
+    notifyContentChanged();
+  }
+
+  function renameBookmark(id, newName) {
+    const bm = editor.querySelector(`span[data-remoffice-bookmark-id="${id}"]`);
+    if (bm) {
+      bm.setAttribute('data-remoffice-bookmark-name', newName);
+      bm.title = `Bookmark: ${newName}`;
+      notifyContentChanged();
+    }
+  }
+
+  function deleteBookmark(id) {
+    const bm = editor.querySelector(`span[data-remoffice-bookmark-id="${id}"]`);
+    if (bm) {
+      bm.parentNode.removeChild(bm);
+      notifyContentChanged();
+    }
+  }
+
+  function goToBookmark(id) {
+    const bm = editor.querySelector(`span[data-remoffice-bookmark-id="${id}"]`);
+    if (bm) {
+      bm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      bm.style.borderInlineStartWidth = '6px';
+      setTimeout(() => { bm.style.borderInlineStartWidth = '3px'; }, 1500);
+    }
+  }
+
+  function insertInternalLink(bookmarkId, text) {
+    focusEditor();
+    const link = document.createElement('a');
+    link.href = `#bm_${bookmarkId}`;
+    link.textContent = text || 'رابط العلامة المرجعية';
+    link.onclick = function(e) {
+      e.preventDefault();
+      goToBookmark(bookmarkId);
+      return false;
+    };
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      range.insertNode(link);
+    } else {
+      editor.appendChild(link);
+    }
+    notifyContentChanged();
+  }
+
+  // --- Table of Contents ---
+  function insertTableOfContents() {
+    removeTableOfContents();
+    const headings = editor.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    if (headings.length === 0) return false;
+
+    const tocBox = document.createElement('div');
+    tocBox.id = 'remofficeTocBox';
+    tocBox.className = 'remoffice-toc-box';
+    tocBox.setAttribute('contenteditable', 'false');
+
+    let html = '<h3 style="margin-top:0;color:#0F172A;">جدول المحتويات / Table of Contents</h3><ul style="list-style:none;padding-inline-start:0;margin:0;">';
+    headings.forEach((h, idx) => {
+      const hId = h.id || `heading_toc_${idx}`;
+      h.id = hId;
+      const level = parseInt(h.tagName.substring(1), 10);
+      const indent = (level - 1) * 16;
+      html += `<li style="margin-inline-start:${indent}px;margin-bottom:4px;"><a href="#${hId}" onclick="window.editorApi.goToHeading('${hId}');return false;" style="color:#1A56DB;text-decoration:none;">• ${h.textContent}</a></li>`;
+    });
+    html += '</ul>';
+    tocBox.innerHTML = html;
+
+    editor.insertBefore(tocBox, editor.firstChild);
+    notifyContentChanged();
+    return true;
+  }
+
+  function updateTableOfContents() {
+    return insertTableOfContents();
+  }
+
+  function removeTableOfContents() {
+    const box = editor.querySelector('#remofficeTocBox');
+    if (box) box.parentNode.removeChild(box);
+    notifyContentChanged();
+  }
+
+  function goToHeading(id) {
+    const h = editor.querySelector(`#${id}`);
+    if (h) h.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
   setTimeout(notifySelectionState, 200);
 })();
