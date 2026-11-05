@@ -24,18 +24,34 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -57,6 +73,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.bridge.AiAssistantService
 import com.example.bridge.DocxConverter
 import com.example.bridge.EditorCommands
 import com.example.bridge.EditorJsBridge
@@ -112,6 +129,9 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     var activeDocId by remember { mutableStateOf<String?>(null) }
     var activeSourceType by remember { mutableStateOf("NEW") }
     var showDeveloperBanner by remember { mutableStateOf(false) }
+    var showAiChatBox by remember { mutableStateOf(false) }
+    var aiPromptText by remember { mutableStateOf("") }
+    var isAiGenerating by remember { mutableStateOf(false) }
 
     val selectionState by viewModel.selectionState.collectAsStateWithLifecycle()
     val currentHtml by viewModel.currentHtml.collectAsStateWithLifecycle()
@@ -545,6 +565,133 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                         .align(Alignment.BottomEnd)
                         .padding(16.dp)
                 )
+            } else {
+                // Floating AI Assistant Button at Top-Left
+                if (!showAiChatBox) {
+                    FloatingActionButton(
+                        onClick = { showAiChatBox = true },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(start = 12.dp, top = 64.dp)
+                            .size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "مساعد AI الذكي"
+                        )
+                    }
+                }
+
+                // Floating AI Chat Box
+                AnimatedVisibility(
+                    visible = showAiChatBox,
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
+                    exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 12.dp, end = 12.dp, top = 64.dp)
+                        .fillMaxWidth(0.92f)
+                ) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "مساعد AI الذكي",
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { showAiChatBox = false },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "إغلاق المساعد"
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            OutlinedTextField(
+                                value = aiPromptText,
+                                onValueChange = { aiPromptText = it },
+                                placeholder = { Text("اكتب طلبك (مثال: اكتب بحثاً عن الذكاء الاصطناعي)...") },
+                                minLines = 2,
+                                maxLines = 4,
+                                enabled = !isAiGenerating,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Button(
+                                    onClick = {
+                                        val prompt = aiPromptText.trim()
+                                        if (prompt.isNotEmpty() && !isAiGenerating) {
+                                            isAiGenerating = true
+                                            scope.launch {
+                                                val result = AiAssistantService.generateDocumentContent(prompt)
+                                                isAiGenerating = false
+                                                result.onSuccess { html ->
+                                                    EditorCommands.insertHtml(webViewRef, html)
+                                                    aiPromptText = ""
+                                                    showAiChatBox = false
+                                                    viewModel.showMessage("تم تنفيذ الطلب وإدراجه في المستند")
+                                                }.onFailure { err ->
+                                                    viewModel.showMessage("تعذر التنفيذ: ${err.localizedMessage}")
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = aiPromptText.isNotBlank() && !isAiGenerating
+                                ) {
+                                    if (isAiGenerating) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.onPrimary
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("جاري الكتابة...")
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Send,
+                                            contentDescription = "إرسال",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("إرسال")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
