@@ -58,6 +58,7 @@ data class EditorSelectionState(
     val isBulletList: Boolean = false,
     val isNumberList: Boolean = false,
     val inTable: Boolean = false,
+    val inImage: Boolean = false,
     val formatPainterActive: Boolean = false,
     val wordCount: Int = 0,
     val charCount: Int = 0,

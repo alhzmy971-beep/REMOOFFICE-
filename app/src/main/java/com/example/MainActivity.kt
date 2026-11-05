@@ -90,6 +90,7 @@ import com.example.ui.components.HyperlinkDialog
 import com.example.ui.components.RenameDocumentDialog
 import com.example.ui.components.SignaturePadDialog
 import com.example.ui.components.TableGridDialog
+import com.example.ui.components.TemplatesDialog
 import com.example.ui.components.TextBoxDialog
 import com.example.ui.components.TopActionBar
 import com.example.ui.screens.HomeHubScreen
@@ -137,6 +138,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     var showTopFormattingBar by remember { mutableStateOf(false) }
     var showSignatureDialog by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
+    var showTemplatesDialog by remember { mutableStateOf(false) }
 
     val selectionState by viewModel.selectionState.collectAsStateWithLifecycle()
     val currentHtml by viewModel.currentHtml.collectAsStateWithLifecycle()
@@ -293,20 +295,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             HomeHubScreen(
                 documents = savedDocuments,
                 onCreateNewDocument = {
-                    val blankHtml = "<p><br></p>"
-                    val title = "مستند جديد ${savedDocuments.size + 1}"
-                    val saved = repository.createOrUpdateDocument(
-                        id = null,
-                        title = title,
-                        html = blankHtml,
-                        sourceType = "NEW",
-                        wordCount = 0
-                    )
-                    activeDocId = saved.id
-                    activeSourceType = "NEW"
-                    viewModel.setDocumentTitle(title)
-                    viewModel.updateHtml(blankHtml)
-                    currentScreen = AppScreen.EDITOR
+                    showTemplatesDialog = true
                 },
                 onImportDocument = {
                     importDocumentLauncher.launch(
@@ -361,6 +350,30 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                         )
                     }
                 }
+            }
+            if (showTemplatesDialog) {
+                TemplatesDialog(
+                    onDismiss = { showTemplatesDialog = false },
+                    onSelectTemplate = { template ->
+                        val title = if (template.id == "blank") {
+                            "مستند جديد ${savedDocuments.size + 1}"
+                        } else {
+                            template.title
+                        }
+                        val saved = repository.createOrUpdateDocument(
+                            id = null,
+                            title = title,
+                            html = template.htmlContent,
+                            sourceType = "NEW",
+                            wordCount = 0
+                        )
+                        activeDocId = saved.id
+                        activeSourceType = "NEW"
+                        viewModel.setDocumentTitle(title)
+                        viewModel.updateHtml(template.htmlContent)
+                        currentScreen = AppScreen.EDITOR
+                    }
+                )
             }
         }
         return
@@ -588,6 +601,11 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                     "<span style=\"display:inline-block;border:2px solid #DC2626;color:#DC2626;padding:4px 12px;border-radius:6px;font-weight:bold;margin:4px;\">$stamp</span>&nbsp;"
                                 )
                             },
+                            onResizeImage = { EditorCommands.resizeImage(webViewRef, it) },
+                            onAlignImage = { EditorCommands.alignImage(webViewRef, it) },
+                            onToggleImageBorder = { EditorCommands.toggleImageBorder(webViewRef) },
+                            onToggleImageRounded = { EditorCommands.toggleImageRounded(webViewRef) },
+                            onDeleteSelectedImage = { EditorCommands.deleteSelectedImage(webViewRef) },
                             onSelectMarginPreset = { preset ->
                                 viewModel.updatePageConfig { it.copy(marginPreset = preset) }
                                 EditorCommands.setPageConfig(webViewRef, pageConfig.copy(marginPreset = preset))

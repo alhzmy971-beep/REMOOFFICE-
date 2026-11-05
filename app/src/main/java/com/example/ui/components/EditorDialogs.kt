@@ -445,3 +445,47 @@ fun CommentDialog(
         }
     )
 }
+
+
+@Composable
+fun TemplatesDialog(
+    onDismiss: () -> Unit,
+    onSelectTemplate: (com.example.data.DocumentTemplate) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("اختر قالب المستند") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.example.data.DocumentTemplates.allTemplates.forEach { template ->
+                    androidx.compose.material3.Surface(
+                        onClick = {
+                            onSelectTemplate(template)
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = template.title,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                text = template.subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إغلاق") }
+        }
+    )
+}

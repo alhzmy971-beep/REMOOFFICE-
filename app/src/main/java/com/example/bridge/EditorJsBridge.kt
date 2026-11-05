@@ -36,6 +36,7 @@ class EditorJsBridge(
                 isBulletList = obj.optBoolean("isBulletList", false),
                 isNumberList = obj.optBoolean("isNumberList", false),
                 inTable = obj.optBoolean("inTable", false),
+                inImage = obj.optBoolean("inImage", false),
                 formatPainterActive = obj.optBoolean("formatPainterActive", false),
                 wordCount = obj.optInt("wordCount", 0),
                 charCount = obj.optInt("charCount", 0),
@@ -120,6 +121,21 @@ object EditorCommands {
         val escaped = JSONObject.quote(dataUrl)
         eval(webView, "window.editorApi.insertImage($escaped, $widthPercent)")
     }
+
+    fun resizeImage(webView: WebView?, widthPercent: Int) =
+        eval(webView, "window.editorApi.resizeImage($widthPercent)")
+
+    fun alignImage(webView: WebView?, align: String) =
+        eval(webView, "window.editorApi.alignImage('$align')")
+
+    fun toggleImageBorder(webView: WebView?) =
+        eval(webView, "window.editorApi.toggleImageBorder()")
+
+    fun toggleImageRounded(webView: WebView?) =
+        eval(webView, "window.editorApi.toggleImageRounded()")
+
+    fun deleteSelectedImage(webView: WebView?) =
+        eval(webView, "window.editorApi.deleteSelectedImage()")
 
     fun insertShape(webView: WebView?, shapeType: String) =
         eval(webView, "window.editorApi.insertShape('$shapeType')")
