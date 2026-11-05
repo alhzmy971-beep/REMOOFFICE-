@@ -2,12 +2,17 @@ package com.example.data
 
 import android.content.Context
 import com.example.model.DocumentComment
+import com.example.model.DocumentBookmark
+import com.example.model.DocumentNote
 import com.example.model.DocumentPayload
+import com.example.model.DocumentProperties
+import com.example.model.DocumentStyle
 import com.example.model.MarginPreset
 import com.example.model.PageConfig
 import com.example.model.PageOrientation
 import com.example.model.PageSize
 import com.example.model.PageTheme
+import com.example.model.TrackedChange
 import com.example.security.HtmlSanitizer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -131,12 +136,18 @@ class DocumentRepository(context: Context) {
         val docId = id ?: UUID.randomUUID().toString()
         val safeTitle = HtmlSanitizer.sanitizeFileName(title)
         val contentFile = File(docsDir, "$docId.json")
-
-        val jsonPayload = serializePayload(payload)
-        atomicWriteText(contentFile, jsonPayload)
-
         val now = System.currentTimeMillis()
         val existing = _documents.value.find { it.id == docId }
+        val persistedPayload = payload.copy(
+            properties = payload.properties.copy(
+                modificationDate = now,
+                revision = if (existing == null) payload.properties.revision else payload.properties.revision + 1
+            )
+        )
+
+        val jsonPayload = serializePayload(persistedPayload)
+        atomicWriteText(contentFile, jsonPayload)
+
         val updatedDoc = SavedDocument(
             id = docId,
             title = safeTitle,
@@ -196,12 +207,64 @@ class DocumentRepository(context: Context) {
                 }
             )
         }
+        val changesArr = JSONArray()
+        payload.trackedChanges.forEach { change ->
+            changesArr.put(JSONObject().apply {
+                put("id", change.id)
+                put("type", change.type)
+                put("text", change.text)
+                put("author", change.author)
+                put("timestamp", change.timestamp)
+                put("status", change.status)
+            })
+        }
+        val stylesArr = JSONArray()
+        payload.styles.forEach { style ->
+            stylesArr.put(JSONObject().apply {
+                put("name", style.name)
+                put("fontFamily", style.fontFamily)
+                put("fontSizePt", style.fontSizePt)
+                put("colorHex", style.colorHex)
+                put("isBold", style.isBold)
+                put("isItalic", style.isItalic)
+            })
+        }
+        val bookmarksArr = JSONArray()
+        payload.bookmarks.forEach { bookmark ->
+            bookmarksArr.put(JSONObject().apply {
+                put("id", bookmark.id)
+                put("name", bookmark.name)
+                put("timestamp", bookmark.timestamp)
+            })
+        }
+        val notesArr = JSONArray()
+        payload.notes.forEach { note ->
+            notesArr.put(JSONObject().apply {
+                put("id", note.id)
+                put("type", note.type)
+                put("text", note.text)
+            })
+        }
+        val props = payload.properties
+        val propsObj = JSONObject().apply {
+            put("author", props.author)
+            put("title", props.title)
+            put("subject", props.subject)
+            put("creationDate", props.creationDate)
+            put("modificationDate", props.modificationDate)
+            put("revision", props.revision)
+        }
         return JSONObject().apply {
             put("bodyHtml", payload.bodyHtml)
             put("headerHtml", payload.headerHtml)
             put("footerHtml", payload.footerHtml)
             put("pageConfig", cfgObj)
             put("comments", commentsArr)
+            put("trackedChanges", changesArr)
+            put("styles", stylesArr)
+            put("bookmarks", bookmarksArr)
+            put("notes", notesArr)
+            put("properties", propsObj)
         }.toString()
     }
 
@@ -241,12 +304,77 @@ class DocumentRepository(context: Context) {
                 }
             }
 
+            val trackedChanges = mutableListOf<TrackedChange>()
+            obj.optJSONArray("trackedChanges")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val item = arr.getJSONObject(i)
+                    trackedChanges.add(TrackedChange(
+                        id = item.optString("id", UUID.randomUUID().toString()),
+                        type = item.optString("type", "INSERT"),
+                        text = item.optString("text", ""),
+                        author = item.optString("author", "المستخدم"),
+                        timestamp = item.optLong("timestamp", System.currentTimeMillis()),
+                        status = item.optString("status", "PENDING")
+                    ))
+                }
+            }
+            val styles = mutableListOf<DocumentStyle>()
+            obj.optJSONArray("styles")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val item = arr.getJSONObject(i)
+                    styles.add(DocumentStyle(
+                        name = item.optString("name", "Normal"),
+                        fontFamily = item.optString("fontFamily", "Arial"),
+                        fontSizePt = item.optInt("fontSizePt", 14),
+                        colorHex = item.optString("colorHex", "#1E293B"),
+                        isBold = item.optBoolean("isBold", false),
+                        isItalic = item.optBoolean("isItalic", false)
+                    ))
+                }
+            }
+            val bookmarks = mutableListOf<DocumentBookmark>()
+            obj.optJSONArray("bookmarks")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val item = arr.getJSONObject(i)
+                    bookmarks.add(DocumentBookmark(
+                        id = item.optString("id", UUID.randomUUID().toString()),
+                        name = item.optString("name", ""),
+                        timestamp = item.optLong("timestamp", System.currentTimeMillis())
+                    ))
+                }
+            }
+            val notes = mutableListOf<DocumentNote>()
+            obj.optJSONArray("notes")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val item = arr.getJSONObject(i)
+                    notes.add(DocumentNote(
+                        id = item.optString("id", UUID.randomUUID().toString()),
+                        type = item.optString("type", "FOOTNOTE"),
+                        text = item.optString("text", "")
+                    ))
+                }
+            }
+            val propsObj = obj.optJSONObject("properties")
+            val properties = if (propsObj != null) DocumentProperties(
+                author = propsObj.optString("author", "المستخدم"),
+                title = propsObj.optString("title", ""),
+                subject = propsObj.optString("subject", ""),
+                creationDate = propsObj.optLong("creationDate", System.currentTimeMillis()),
+                modificationDate = propsObj.optLong("modificationDate", System.currentTimeMillis()),
+                revision = propsObj.optInt("revision", 1)
+            ) else DocumentProperties()
+
             DocumentPayload(
                 bodyHtml = obj.optString("bodyHtml", "<p><br></p>"),
                 headerHtml = obj.optString("headerHtml", ""),
                 footerHtml = obj.optString("footerHtml", ""),
                 pageConfig = cfg,
-                comments = comments
+                comments = comments,
+                trackedChanges = trackedChanges,
+                styles = styles,
+                bookmarks = bookmarks,
+                notes = notes,
+                properties = properties
             )
         } catch (_: Exception) {
             DocumentPayload()

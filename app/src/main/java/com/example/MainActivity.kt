@@ -878,7 +878,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
         CommentDialog(
             onDismiss = { showCommentDialog = false },
             onInsertComment = { comment ->
-                viewModel.addComment(quote = "", text = comment)
+                viewModel.addComment(quote = selectionState.selectedText, text = comment)
                 viewModel.showMessage("تمت إضافة التعليق")
             }
         )

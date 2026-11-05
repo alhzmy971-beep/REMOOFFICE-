@@ -135,5 +135,6 @@ data class EditorSelectionState(
     val wordCount: Int = 0,
     val charCount: Int = 0,
     val paragraphCount: Int = 0,
-    val pageCount: Int = 1
+    val pageCount: Int = 1,
+    val selectedText: String = ""
 )
