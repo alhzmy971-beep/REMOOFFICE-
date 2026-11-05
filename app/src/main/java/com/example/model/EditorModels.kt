@@ -1,10 +1,18 @@
 package com.example.model
 
 enum class EditorTab(val titleAr: String, val titleEn: String) {
+    FILE("ملف", "File"),
     HOME("الرئيسية", "Home"),
     INSERT("إدراج", "Insert"),
     LAYOUT("تخطيط", "Layout"),
-    REVIEW("مراجعة", "Review")
+    REVIEW("مراجعة", "Review"),
+    VIEW("عرض", "View")
+}
+
+enum class SortOrder(val labelAr: String) {
+    DATE_DESC("الأحدث"),
+    TITLE_ASC("الاسم"),
+    TYPE_ASC("النوع")
 }
 
 enum class PageSize(val label: String, val widthMm: Int, val heightMm: Int) {
@@ -54,12 +62,56 @@ data class DocumentComment(
     val resolved: Boolean = false
 )
 
+data class TrackedChange(
+    val id: String,
+    val type: String, // "INSERT", "DELETE", "FORMAT"
+    val text: String,
+    val author: String = "المستخدم",
+    val timestamp: Long = System.currentTimeMillis(),
+    val status: String = "PENDING" // "PENDING", "ACCEPTED", "REJECTED"
+)
+
+data class DocumentProperties(
+    val author: String = "المستخدم",
+    val title: String = "",
+    val subject: String = "",
+    val creationDate: Long = System.currentTimeMillis(),
+    val modificationDate: Long = System.currentTimeMillis(),
+    val revision: Int = 1
+)
+
+data class DocumentStyle(
+    val name: String,
+    val fontFamily: String = "Arial",
+    val fontSizePt: Int = 14,
+    val colorHex: String = "#1E293B",
+    val isBold: Boolean = false,
+    val isItalic: Boolean = false
+)
+
+data class DocumentBookmark(
+    val id: String,
+    val name: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+data class DocumentNote(
+    val id: String,
+    val type: String = "FOOTNOTE", // "FOOTNOTE" or "ENDNOTE"
+    val text: String
+)
+
 data class DocumentPayload(
     val bodyHtml: String = "<p><br></p>",
     val headerHtml: String = "",
     val footerHtml: String = "",
     val pageConfig: PageConfig = PageConfig(),
-    val comments: List<DocumentComment> = emptyList()
+    val comments: List<DocumentComment> = emptyList(),
+    val trackedChanges: List<TrackedChange> = emptyList(),
+    val styles: List<DocumentStyle> = emptyList(),
+    val bookmarks: List<DocumentBookmark> = emptyList(),
+    val notes: List<DocumentNote> = emptyList(),
+    val properties: DocumentProperties = DocumentProperties()
 )
 
 data class EditorSelectionState(

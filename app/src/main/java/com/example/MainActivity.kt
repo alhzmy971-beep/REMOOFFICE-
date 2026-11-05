@@ -158,6 +158,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     var showTextBoxDialog by remember { mutableStateOf(false) }
     var showCustomMarginDialog by remember { mutableStateOf(false) }
     var showFindReplaceDialog by remember { mutableStateOf(false) }
+    var showAiKeyDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentScreen) {
         if (currentScreen == AppScreen.HOME) {
@@ -452,64 +453,6 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 }
                             }
                         )
-
-                        AnimatedVisibility(visible = showTopFormattingBar) {
-                            DynamicToolsPanel(
-                                activeTab = com.example.model.EditorTab.HOME,
-                                selectionState = selectionState,
-                                pageConfig = pageConfig,
-                                onToggleBold = { EditorCommands.toggleBold(webViewRef) },
-                                onToggleItalic = { EditorCommands.toggleItalic(webViewRef) },
-                                onToggleUnderline = { EditorCommands.toggleUnderline(webViewRef) },
-                                onToggleStrike = { EditorCommands.toggleStrikethrough(webViewRef) },
-                                onToggleSuperscript = { EditorCommands.toggleSuperscript(webViewRef) },
-                                onToggleSubscript = { EditorCommands.toggleSubscript(webViewRef) },
-                                onClearFormatting = { EditorCommands.clearFormatting(webViewRef) },
-                                onToggleFormatPainter = { EditorCommands.toggleFormatPainter(webViewRef) },
-                                onSelectHeading = { EditorCommands.setHeading(webViewRef, it) },
-                                onSetDirection = { EditorCommands.setDirection(webViewRef, it) },
-                                onSelectFontFamily = { EditorCommands.setFontFamily(webViewRef, it) },
-                                onSelectFontSize = { EditorCommands.setFontSize(webViewRef, it) },
-                                onIncreaseFontSize = { EditorCommands.increaseFontSize(webViewRef) },
-                                onDecreaseFontSize = { EditorCommands.decreaseFontSize(webViewRef) },
-                                onSelectForeColor = { EditorCommands.setForeColor(webViewRef, it) },
-                                onSelectBackColor = { EditorCommands.setBackColor(webViewRef, it) },
-                                onSetAlignment = { EditorCommands.setAlignment(webViewRef, it) },
-                                onSetLineHeight = { EditorCommands.setLineHeight(webViewRef, it) },
-                                onToggleBulletList = { EditorCommands.toggleBulletList(webViewRef) },
-                                onToggleNumberList = { EditorCommands.toggleNumberList(webViewRef) },
-                                onIndent = { EditorCommands.indent(webViewRef) },
-                                onOutdent = { EditorCommands.outdent(webViewRef) },
-                                onOpenTableDialog = { showTableDialog = true },
-                                onAddTableRow = {},
-                                onAddTableCol = {},
-                                onDeleteTableRow = {},
-                                onDeleteTableCol = {},
-                                onMergeTableCells = {},
-                                onSetCellBackground = {},
-                                onPickImageGallery = {},
-                                onTakePhotoCamera = {},
-                                onInsertShape = {},
-                                onOpenTextBoxDialog = {},
-                                onOpenHyperlinkDialog = {},
-                                onInsertPageBreak = {},
-                                onInsertPageNumber = {},
-                                onInsertDateTime = {},
-                                onInsertHorizontalRule = {},
-                                onOpenSignatureDialog = {},
-                                onOpenCommentDialog = {},
-                                onInsertStamp = {},
-                                onSelectMarginPreset = {},
-                                onOpenCustomMarginDialog = {},
-                                onSelectOrientation = {},
-                                onSelectPageSize = {},
-                                onSelectColumns = {},
-                                onSelectPageTheme = {},
-                                onOpenFindReplaceDialog = {},
-                                onToggleReadMode = {},
-                                onSelectZoom = {}
-                            )
-                        }
                     }
                 }
 
@@ -680,7 +623,21 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             },
                             onSelectZoom = { scale ->
                                 EditorCommands.setZoom(webViewRef, scale)
-                            }
+                            },
+                            onSaveDocx = { saveDocxLauncher.launch("$documentTitle.docx") },
+                            onSharePdf = {
+                                webViewRef?.let { PdfExporter.exportToPdf(context, it, documentTitle) }
+                            },
+                            onOpenDocx = {
+                                importDocumentLauncher.launch(
+                                    arrayOf(
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        "application/pdf",
+                                        "text/plain"
+                                    )
+                                )
+                            },
+                            onRenameDoc = { showRenameDialog = true }
                         )
 
                         BottomTabBar(
@@ -758,14 +715,21 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                         style = MaterialTheme.typography.titleSmall
                                     )
                                 }
-                                IconButton(
-                                    onClick = { showAiChatBox = false },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "إغلاق المساعد"
-                                    )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    androidx.compose.material3.TextButton(
+                                        onClick = { showAiKeyDialog = true }
+                                    ) {
+                                        Text("مفتاح API", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    IconButton(
+                                        onClick = { showAiChatBox = false },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "إغلاق المساعد"
+                                        )
+                                    }
                                 }
                             }
 
@@ -914,10 +878,68 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
         CommentDialog(
             onDismiss = { showCommentDialog = false },
             onInsertComment = { comment ->
-                EditorCommands.insertHtml(
-                    webViewRef,
-                    "<span style=\"background-color:#FEF08A;border-inline-start:3px solid #D97706;padding:2px 8px;margin:2px;display:inline-block;\">💬 $comment</span>&nbsp;"
-                )
+                viewModel.addComment(quote = "", text = comment)
+                viewModel.showMessage("تمت إضافة التعليق")
+            }
+        )
+    }
+
+    if (showAiKeyDialog) {
+        var keyInput by remember { mutableStateOf("") }
+        val hasSavedKey = remember(showAiKeyDialog) { AiAssistantService.hasApiKey(context) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showAiKeyDialog = false },
+            title = { Text("إعدادات مساعد الذكاء الاصطناعي") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = if (hasSavedKey) "الحالة: محفوظ ومشفر في Android Keystore" else "الحالة: غير محفوظ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "ملاحظة: التخزين في التطبيق محلي بالكامل، ويتطلب المساعد اتصالاً بالإنترنت عند الإرسال فقط.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedTextField(
+                        value = keyInput,
+                        onValueChange = { keyInput = it },
+                        label = { Text("أدخل مفتاح Gemini") },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        AiAssistantService.saveApiKey(context, keyInput.trim())
+                        showAiKeyDialog = false
+                        viewModel.showMessage("تم حفظ المفتاح وتشفيره محلياً")
+                    },
+                    enabled = keyInput.isNotBlank()
+                ) {
+                    Text("حفظ")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (hasSavedKey) {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                AiAssistantService.saveApiKey(context, "")
+                                showAiKeyDialog = false
+                                viewModel.showMessage("تم حذف المفتاح")
+                            }
+                        ) {
+                            Text("حذف", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    androidx.compose.material3.TextButton(onClick = { showAiKeyDialog = false }) {
+                        Text("إغلاق")
+                    }
+                }
             }
         )
     }

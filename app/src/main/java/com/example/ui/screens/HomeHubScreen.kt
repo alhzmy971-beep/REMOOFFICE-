@@ -61,8 +61,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import com.example.R
 import com.example.data.SavedDocument
+import com.example.model.SortOrder
 import kotlinx.coroutines.launch
 
 @Composable
@@ -76,6 +82,22 @@ fun HomeHubScreen(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var autoSaveEnabled by remember { mutableStateOf(true) }
+    var searchQuery by remember { mutableStateOf("") }
+    var sortOrder by remember { mutableStateOf(SortOrder.DATE_DESC) }
+    var docToDelete by remember { mutableStateOf<SavedDocument?>(null) }
+
+    val filteredDocuments = remember(documents, searchQuery, sortOrder) {
+        val filtered = if (searchQuery.isBlank()) {
+            documents
+        } else {
+            documents.filter { it.title.contains(searchQuery.trim(), ignoreCase = true) }
+        }
+        when (sortOrder) {
+            SortOrder.DATE_DESC -> filtered.sortedByDescending { it.lastModified }
+            SortOrder.TITLE_ASC -> filtered.sortedBy { it.title.lowercase() }
+            SortOrder.TYPE_ASC -> filtered.sortedBy { it.sourceType }
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -325,6 +347,43 @@ fun HomeHubScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                // Search & Sort Bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("ابحث في المستندات...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .testTag("search_documents_input")
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = sortOrder == SortOrder.DATE_DESC,
+                        onClick = { sortOrder = SortOrder.DATE_DESC },
+                        label = { Text("الأحدث", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = sortOrder == SortOrder.TITLE_ASC,
+                        onClick = { sortOrder = SortOrder.TITLE_ASC },
+                        label = { Text("الاسم", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = sortOrder == SortOrder.TYPE_ASC,
+                        onClick = { sortOrder = SortOrder.TYPE_ASC },
+                        label = { Text("النوع", fontSize = 12.sp) }
+                    )
+                }
+
                 // Section Header: المستندات المنشأة والمستوردة
                 Row(
                     modifier = Modifier
@@ -340,13 +399,13 @@ fun HomeHubScreen(
                         color = Color(0xFF0F172A)
                     )
                     Text(
-                        text = "${documents.size} ملف",
+                        text = "${filteredDocuments.size} ملف",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
 
-                if (documents.isEmpty()) {
+                if (filteredDocuments.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -382,17 +441,40 @@ fun HomeHubScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(documents, key = { it.id }) { doc ->
+                        items(filteredDocuments, key = { it.id }) { doc ->
                             SavedDocumentItem(
                                 doc = doc,
                                 onClick = { onOpenSavedDocument(doc) },
-                                onDelete = { onDeleteSavedDocument(doc) }
+                                onDelete = { docToDelete = doc }
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    docToDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { docToDelete = null },
+            title = { Text("حذف المستند") },
+            text = { Text("هل أنت متأكد من حذف \"${target.title}\"؟") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteSavedDocument(target)
+                        docToDelete = null
+                    }
+                ) {
+                    Text("حذف", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { docToDelete = null }) {
+                    Text("إلغاء")
+                }
+            }
+        )
     }
 }
 
