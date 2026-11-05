@@ -9,9 +9,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Save
@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun TopActionBar(
     documentTitle: String,
+    onBackHome: () -> Unit,
     onTitleClick: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -51,12 +52,16 @@ fun TopActionBar(
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Description,
-                contentDescription = "Document",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
+            IconButton(
+                onClick = onBackHome,
+                modifier = Modifier.testTag("back_home_button")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "العودة للرئيسية",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = documentTitle,

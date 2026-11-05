@@ -42,6 +42,7 @@ credentials = "1.5.0"
 googleid = "1.1.1"
 poiOoxml = "5.2.5"
 jsoup = "1.18.1"
+pdfboxAndroid = "2.0.27.0"
 
 
 [libraries]
@@ -98,6 +99,7 @@ androidx-credentials-play-services = { group = "androidx.credentials", name = "c
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 poi-ooxml = { group = "org.apache.poi", name = "poi-ooxml", version.ref = "poiOoxml" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfboxAndroid" }
 
 
 [plugins]

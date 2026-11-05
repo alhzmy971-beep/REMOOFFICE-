@@ -6,11 +6,13 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.util.Base64
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -59,6 +61,8 @@ import com.example.bridge.DocxConverter
 import com.example.bridge.EditorCommands
 import com.example.bridge.EditorJsBridge
 import com.example.bridge.PdfExporter
+import com.example.bridge.PdfImporter
+import com.example.data.DocumentRepository
 import com.example.model.MarginPreset
 import com.example.ui.components.BottomTabBar
 import com.example.ui.components.CustomMarginDialog
@@ -69,12 +73,19 @@ import com.example.ui.components.RenameDocumentDialog
 import com.example.ui.components.TableGridDialog
 import com.example.ui.components.TextBoxDialog
 import com.example.ui.components.TopActionBar
+import com.example.ui.screens.HomeHubScreen
+import com.example.ui.screens.SplashScreen
 import com.example.ui.theme.DocuCraftTheme
 import com.example.viewmodel.EditorViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+private enum class AppScreen {
+    SPLASH, HOME, EDITOR
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -82,7 +93,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             DocuCraftTheme {
-                DocuCraftApp()
+                RemoOfficeApp()
             }
         }
     }
@@ -90,10 +101,17 @@ class MainActivity : ComponentActivity() {
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun DocuCraftApp(viewModel: EditorViewModel = viewModel()) {
+fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val repository = remember { DocumentRepository(context) }
+    val savedDocuments by repository.documents.collectAsStateWithLifecycle()
+
+    var currentScreen by remember { mutableStateOf(AppScreen.SPLASH) }
+    var activeDocId by remember { mutableStateOf<String?>(null) }
+    var activeSourceType by remember { mutableStateOf("NEW") }
+    var showDeveloperBanner by remember { mutableStateOf(false) }
 
     val selectionState by viewModel.selectionState.collectAsStateWithLifecycle()
     val currentHtml by viewModel.currentHtml.collectAsStateWithLifecycle()
@@ -112,11 +130,13 @@ fun DocuCraftApp(viewModel: EditorViewModel = viewModel()) {
     var showTextBoxDialog by remember { mutableStateOf(false) }
     var showCustomMarginDialog by remember { mutableStateOf(false) }
     var showFindReplaceDialog by remember { mutableStateOf(false) }
-    var showDeveloperBanner by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(4000L)
-        showDeveloperBanner = false
+    LaunchedEffect(currentScreen) {
+        if (currentScreen == AppScreen.HOME) {
+            showDeveloperBanner = true
+            delay(4000L)
+            showDeveloperBanner = false
+        }
     }
 
     LaunchedEffect(snackbarMessage) {
@@ -146,29 +166,52 @@ fun DocuCraftApp(viewModel: EditorViewModel = viewModel()) {
         }
     }
 
-    // Open DOCX launcher
-    val openDocxLauncher = rememberLauncherForActivityResult(
+    // Open / Import Word & PDF launcher
+    val importDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
             scope.launch {
                 try {
+                    val mime = context.contentResolver.getType(uri) ?: ""
+                    val fileName = getFileName(context, uri) ?: "مستند مستورد"
+                    val cleanTitle = fileName.substringBeforeLast(".")
+                    val isPdf = mime.contains("pdf", ignoreCase = true) ||
+                        fileName.endsWith(".pdf", ignoreCase = true)
+
                     val html = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use { input ->
-                            DocxConverter.docxToHtml(input)
+                            if (isPdf) {
+                                PdfImporter.pdfToHtml(context, input)
+                            } else {
+                                DocxConverter.docxToHtml(input)
+                            }
                         } ?: "<p><br></p>"
                     }
+
+                    val sourceType = if (isPdf) "PDF" else "WORD"
+                    val saved = repository.createOrUpdateDocument(
+                        id = null,
+                        title = cleanTitle,
+                        html = html,
+                        sourceType = sourceType,
+                        wordCount = selectionState.wordCount
+                    )
+                    activeDocId = saved.id
+                    activeSourceType = sourceType
+                    viewModel.setDocumentTitle(cleanTitle)
                     viewModel.updateHtml(html)
+                    currentScreen = AppScreen.EDITOR
                     EditorCommands.setHtml(webViewRef, html)
-                    viewModel.showMessage("تم فتح المستند بنجاح")
+                    viewModel.showMessage("تم استيراد المستند بنجاح")
                 } catch (e: Exception) {
-                    viewModel.showMessage("تعذر فتح الملف: ${e.localizedMessage}")
+                    viewModel.showMessage("تعذر استيراد الملف: ${e.localizedMessage}")
                 }
             }
         }
     }
 
-    // Gallery Image Picker (Zero-permission Photo Picker)
+    // Gallery Image Picker
     val pickImageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
@@ -213,6 +256,95 @@ fun DocuCraftApp(viewModel: EditorViewModel = viewModel()) {
         }
     }
 
+    if (currentScreen == AppScreen.SPLASH) {
+        SplashScreen(
+            onSplashFinished = { currentScreen = AppScreen.HOME }
+        )
+        return
+    }
+
+    if (currentScreen == AppScreen.HOME) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            HomeHubScreen(
+                documents = savedDocuments,
+                onCreateNewDocument = {
+                    val blankHtml = "<p><br></p>"
+                    val title = "مستند جديد ${savedDocuments.size + 1}"
+                    val saved = repository.createOrUpdateDocument(
+                        id = null,
+                        title = title,
+                        html = blankHtml,
+                        sourceType = "NEW",
+                        wordCount = 0
+                    )
+                    activeDocId = saved.id
+                    activeSourceType = "NEW"
+                    viewModel.setDocumentTitle(title)
+                    viewModel.updateHtml(blankHtml)
+                    currentScreen = AppScreen.EDITOR
+                },
+                onImportDocument = {
+                    importDocumentLauncher.launch(
+                        arrayOf(
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            "application/msword",
+                            "application/pdf"
+                        )
+                    )
+                },
+                onOpenSavedDocument = { doc ->
+                    val html = repository.loadDocumentHtml(doc.id)
+                    activeDocId = doc.id
+                    activeSourceType = doc.sourceType
+                    viewModel.setDocumentTitle(doc.title)
+                    viewModel.updateHtml(html)
+                    currentScreen = AppScreen.EDITOR
+                },
+                onDeleteSavedDocument = { doc ->
+                    repository.deleteDocument(doc.id)
+                }
+            )
+
+            AnimatedVisibility(
+                visible = showDeveloperBanner,
+                enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(horizontal = 16.dp, vertical = 48.dp)
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(14.dp),
+                    shadowElevation = 8.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDeveloperBanner = false }
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    ) {
+                        Text(
+                            text = "هذا التطبيق من برمجة وتطوير المطور محمد الحزمي",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Text(
+                            text = "جميع الحقوق محفوظة للمطور",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    BackHandler {
+        currentScreen = AppScreen.HOME
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         modifier = Modifier
@@ -228,14 +360,16 @@ fun DocuCraftApp(viewModel: EditorViewModel = viewModel()) {
                 AnimatedVisibility(visible = !isReadMode) {
                     TopActionBar(
                         documentTitle = documentTitle,
+                        onBackHome = { currentScreen = AppScreen.HOME },
                         onTitleClick = { showRenameDialog = true },
                         onUndo = { EditorCommands.undo(webViewRef) },
                         onRedo = { EditorCommands.redo(webViewRef) },
                         onOpenDocx = {
-                            openDocxLauncher.launch(
+                            importDocumentLauncher.launch(
                                 arrayOf(
                                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                    "application/msword"
+                                    "application/msword",
+                                    "application/pdf"
                                 )
                             )
                         },
@@ -265,13 +399,24 @@ fun DocuCraftApp(viewModel: EditorViewModel = viewModel()) {
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
+                                    EditorCommands.setHtml(view, currentHtml)
                                     EditorCommands.setPageConfig(view, pageConfig)
                                 }
                             }
                             addJavascriptInterface(
                                 EditorJsBridge(
                                     onStateUpdated = { viewModel.updateSelectionState(it) },
-                                    onHtmlUpdated = { viewModel.updateHtml(it) }
+                                    onHtmlUpdated = { html ->
+                                        viewModel.updateHtml(html)
+                                        val saved = repository.createOrUpdateDocument(
+                                            id = activeDocId,
+                                            title = documentTitle,
+                                            html = html,
+                                            sourceType = activeSourceType,
+                                            wordCount = selectionState.wordCount
+                                        )
+                                        activeDocId = saved.id
+                                    }
                                 ),
                                 "AndroidBridge"
                             )
@@ -401,39 +546,6 @@ fun DocuCraftApp(viewModel: EditorViewModel = viewModel()) {
                         .padding(16.dp)
                 )
             }
-
-            AnimatedVisibility(
-                visible = showDeveloperBanner,
-                enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
-                exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(horizontal = 16.dp, vertical = 64.dp)
-            ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = RoundedCornerShape(14.dp),
-                    shadowElevation = 8.dp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showDeveloperBanner = false }
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                    ) {
-                        Text(
-                            text = "هذا التطبيق من برمجة وتطوير المطور محمد الحزمي",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        Text(
-                            text = "جميع الحقوق محفوظة للمطور",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            }
         }
     }
 
@@ -442,7 +554,16 @@ fun DocuCraftApp(viewModel: EditorViewModel = viewModel()) {
         RenameDocumentDialog(
             currentTitle = documentTitle,
             onDismiss = { showRenameDialog = false },
-            onConfirm = { viewModel.setDocumentTitle(it) }
+            onConfirm = { newTitle ->
+                viewModel.setDocumentTitle(newTitle)
+                repository.createOrUpdateDocument(
+                    id = activeDocId,
+                    title = newTitle,
+                    html = currentHtml,
+                    sourceType = activeSourceType,
+                    wordCount = selectionState.wordCount
+                )
+            }
         )
     }
 
@@ -487,6 +608,19 @@ fun DocuCraftApp(viewModel: EditorViewModel = viewModel()) {
             }
         )
     }
+}
+
+private fun getFileName(context: Context, uri: Uri): String? {
+    var result: String? = null
+    if (uri.scheme == "content") {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0) result = cursor.getString(idx)
+            }
+        }
+    }
+    return result ?: uri.path?.substringAfterLast('/')
 }
 
 private suspend fun uriToBase64DataUrl(context: Context, uri: Uri): String? =
