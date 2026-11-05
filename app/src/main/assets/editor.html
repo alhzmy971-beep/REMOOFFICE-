@@ -149,6 +149,12 @@
     border-radius: 4px;
     margin: 6px 0;
     display: inline-block;
+    cursor: pointer;
+  }
+
+  .page img.selected-img {
+    outline: 2.5px solid #1A56DB;
+    outline-offset: 2px;
   }
 
   .page a {
@@ -224,6 +230,7 @@
   let currentFontSizePt = 14;
   let currentLineHeight = '1.5';
   let lastSelectedCell = null;
+  let lastSelectedImage = null;
   let copiedFormat = null;
 
   function focusEditor() {
@@ -296,6 +303,7 @@
         isBulletList: document.queryCommandState('insertUnorderedList'),
         isNumberList: document.queryCommandState('insertOrderedList'),
         inTable: Boolean(cell),
+        inImage: Boolean(lastSelectedImage),
         formatPainterActive: Boolean(copiedFormat),
         wordCount: stats.words,
         charCount: stats.chars,
@@ -315,6 +323,17 @@
   }
 
   document.addEventListener('selectionchange', notifySelectionState);
+  editor.addEventListener('click', function(e) {
+    if (lastSelectedImage && lastSelectedImage !== e.target) {
+      lastSelectedImage.classList.remove('selected-img');
+      lastSelectedImage = null;
+    }
+    if (e.target && e.target.tagName && e.target.tagName.toLowerCase() === 'img') {
+      lastSelectedImage = e.target;
+      lastSelectedImage.classList.add('selected-img');
+    }
+    notifySelectionState();
+  });
   editor.addEventListener('keyup', notifySelectionState);
   editor.addEventListener('mouseup', function() {
     if (copiedFormat) {
@@ -531,6 +550,49 @@
       const w = widthPercent || 80;
       const html = `<p><img src="${dataUrl}" style="width: ${w}%;" /></p>`;
       document.execCommand('insertHTML', false, html);
+      notifySelectionState();
+      notifyContentChanged();
+    },
+
+    resizeImage: (widthPercent) => {
+      if (!lastSelectedImage) return;
+      lastSelectedImage.style.width = widthPercent + '%';
+      notifyContentChanged();
+    },
+
+    alignImage: (align) => {
+      if (!lastSelectedImage) return;
+      const parent = lastSelectedImage.parentNode;
+      if (parent && parent !== editor) {
+        parent.style.textAlign = align;
+      }
+      notifyContentChanged();
+    },
+
+    toggleImageBorder: () => {
+      if (!lastSelectedImage) return;
+      if (lastSelectedImage.style.border) {
+        lastSelectedImage.style.border = '';
+      } else {
+        lastSelectedImage.style.border = '3px solid #1A56DB';
+      }
+      notifyContentChanged();
+    },
+
+    toggleImageRounded: () => {
+      if (!lastSelectedImage) return;
+      if (lastSelectedImage.style.borderRadius === '50%') {
+        lastSelectedImage.style.borderRadius = '4px';
+      } else {
+        lastSelectedImage.style.borderRadius = '50%';
+      }
+      notifyContentChanged();
+    },
+
+    deleteSelectedImage: () => {
+      if (!lastSelectedImage) return;
+      lastSelectedImage.parentNode.removeChild(lastSelectedImage);
+      lastSelectedImage = null;
       notifySelectionState();
       notifyContentChanged();
     },

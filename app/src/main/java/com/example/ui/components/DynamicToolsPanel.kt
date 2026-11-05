@@ -135,6 +135,11 @@ fun DynamicToolsPanel(
     onOpenSignatureDialog: () -> Unit,
     onOpenCommentDialog: () -> Unit,
     onInsertStamp: (String) -> Unit,
+    onResizeImage: (Int) -> Unit = {},
+    onAlignImage: (String) -> Unit = {},
+    onToggleImageBorder: () -> Unit = {},
+    onToggleImageRounded: () -> Unit = {},
+    onDeleteSelectedImage: () -> Unit = {},
     // Layout actions
     onSelectMarginPreset: (MarginPreset) -> Unit,
     onOpenCustomMarginDialog: () -> Unit,
@@ -182,6 +187,7 @@ fun DynamicToolsPanel(
                 )
                 EditorTab.INSERT -> InsertToolsContent(
                     inTable = selectionState.inTable,
+                    inImage = selectionState.inImage,
                     onOpenTableDialog = onOpenTableDialog,
                     onAddTableRow = onAddTableRow,
                     onAddTableCol = onAddTableCol,
@@ -200,7 +206,12 @@ fun DynamicToolsPanel(
                     onInsertHorizontalRule = onInsertHorizontalRule,
                     onOpenSignatureDialog = onOpenSignatureDialog,
                     onOpenCommentDialog = onOpenCommentDialog,
-                    onInsertStamp = onInsertStamp
+                    onInsertStamp = onInsertStamp,
+                    onResizeImage = onResizeImage,
+                    onAlignImage = onAlignImage,
+                    onToggleImageBorder = onToggleImageBorder,
+                    onToggleImageRounded = onToggleImageRounded,
+                    onDeleteSelectedImage = onDeleteSelectedImage
                 )
                 EditorTab.LAYOUT -> LayoutToolsContent(
                     pageConfig = pageConfig,
@@ -264,6 +275,7 @@ private fun HomeToolsContent(
     )
     val fonts = listOf(
         "Amiri", "Cairo", "Tajawal", "Reem Kufi", "Almarai",
+        "Kufi", "El Messiri", "Naskh", "Ruqaa", "Scheherazade", "Lateef", "Changa", "Mada",
         "Playfair Display", "Merriweather", "Roboto", "Montserrat",
         "Arial", "Times New Roman", "Georgia", "Courier New", "Tahoma"
     )
@@ -492,6 +504,7 @@ private fun HomeToolsContent(
 @Composable
 private fun InsertToolsContent(
     inTable: Boolean,
+    inImage: Boolean,
     onOpenTableDialog: () -> Unit,
     onAddTableRow: () -> Unit,
     onAddTableCol: () -> Unit,
@@ -510,7 +523,12 @@ private fun InsertToolsContent(
     onInsertHorizontalRule: () -> Unit,
     onOpenSignatureDialog: () -> Unit,
     onOpenCommentDialog: () -> Unit,
-    onInsertStamp: (String) -> Unit
+    onInsertStamp: (String) -> Unit,
+    onResizeImage: (Int) -> Unit,
+    onAlignImage: (String) -> Unit,
+    onToggleImageBorder: () -> Unit,
+    onToggleImageRounded: () -> Unit,
+    onDeleteSelectedImage: () -> Unit
 ) {
     var shapesMenuExpanded by remember { mutableStateOf(false) }
     var stampsMenuExpanded by remember { mutableStateOf(false) }
@@ -588,6 +606,29 @@ private fun InsertToolsContent(
                 ActionChipButton(Icons.Default.RemoveCircleOutline, "- عمود", onDeleteTableCol)
                 ActionChipButton(Icons.AutoMirrored.Filled.MergeType, "دمج", onMergeTableCells)
                 ActionChipButton(Icons.Default.FormatColorFill, "تظليل", { onSetCellBackground("#DBEAFE") })
+            }
+        }
+
+        if (inImage) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text("تنسيق الصورة:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                ActionChipButton(Icons.Default.Image, "25%", { onResizeImage(25) })
+                ActionChipButton(Icons.Default.Image, "50%", { onResizeImage(50) })
+                ActionChipButton(Icons.Default.Image, "75%", { onResizeImage(75) })
+                ActionChipButton(Icons.Default.Image, "100%", { onResizeImage(100) })
+                ActionChipButton(Icons.AutoMirrored.Filled.FormatAlignRight, "يمين", { onAlignImage("right") })
+                ActionChipButton(Icons.Default.FormatAlignCenter, "وسط", { onAlignImage("center") })
+                ActionChipButton(Icons.AutoMirrored.Filled.FormatAlignLeft, "يسار", { onAlignImage("left") })
+                ActionChipButton(Icons.Default.Category, "إطار", onToggleImageBorder)
+                ActionChipButton(Icons.Default.Category, "دائري", onToggleImageRounded)
+                ActionChipButton(Icons.Default.RemoveCircleOutline, "حذف", onDeleteSelectedImage)
             }
         }
     }
