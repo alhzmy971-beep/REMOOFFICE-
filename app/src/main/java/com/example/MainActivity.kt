@@ -82,11 +82,13 @@ import com.example.bridge.PdfImporter
 import com.example.data.DocumentRepository
 import com.example.model.MarginPreset
 import com.example.ui.components.BottomTabBar
+import com.example.ui.components.CommentDialog
 import com.example.ui.components.CustomMarginDialog
 import com.example.ui.components.DynamicToolsPanel
 import com.example.ui.components.FindReplaceDialog
 import com.example.ui.components.HyperlinkDialog
 import com.example.ui.components.RenameDocumentDialog
+import com.example.ui.components.SignaturePadDialog
 import com.example.ui.components.TableGridDialog
 import com.example.ui.components.TextBoxDialog
 import com.example.ui.components.TopActionBar
@@ -132,6 +134,9 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     var showAiChatBox by remember { mutableStateOf(false) }
     var aiPromptText by remember { mutableStateOf("") }
     var isAiGenerating by remember { mutableStateOf(false) }
+    var showTopFormattingBar by remember { mutableStateOf(false) }
+    var showSignatureDialog by remember { mutableStateOf(false) }
+    var showCommentDialog by remember { mutableStateOf(false) }
 
     val selectionState by viewModel.selectionState.collectAsStateWithLifecycle()
     val currentHtml by viewModel.currentHtml.collectAsStateWithLifecycle()
@@ -378,31 +383,92 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 AnimatedVisibility(visible = !isReadMode) {
-                    TopActionBar(
-                        documentTitle = documentTitle,
-                        onBackHome = { currentScreen = AppScreen.HOME },
-                        onTitleClick = { showRenameDialog = true },
-                        onUndo = { EditorCommands.undo(webViewRef) },
-                        onRedo = { EditorCommands.redo(webViewRef) },
-                        onOpenDocx = {
-                            importDocumentLauncher.launch(
-                                arrayOf(
-                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                    "application/msword",
-                                    "application/pdf"
+                    Column {
+                        TopActionBar(
+                            documentTitle = documentTitle,
+                            onBackHome = { currentScreen = AppScreen.HOME },
+                            onToggleTopToolbar = { showTopFormattingBar = !showTopFormattingBar },
+                            onTitleClick = { showRenameDialog = true },
+                            onUndo = { EditorCommands.undo(webViewRef) },
+                            onRedo = { EditorCommands.redo(webViewRef) },
+                            onOpenDocx = {
+                                importDocumentLauncher.launch(
+                                    arrayOf(
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        "application/msword",
+                                        "application/pdf"
+                                    )
                                 )
-                            )
-                        },
-                        onSaveDocx = {
-                            val fileName = "${documentTitle.ifBlank { "Document" }}.docx"
-                            saveDocxLauncher.launch(fileName)
-                        },
-                        onSharePdf = {
-                            webViewRef?.let { wv ->
-                                PdfExporter.exportToPdf(context, wv, documentTitle)
+                            },
+                            onSaveDocx = {
+                                val fileName = "${documentTitle.ifBlank { "Document" }}.docx"
+                                saveDocxLauncher.launch(fileName)
+                            },
+                            onSharePdf = {
+                                webViewRef?.let { wv ->
+                                    PdfExporter.exportToPdf(context, wv, documentTitle)
+                                }
                             }
+                        )
+
+                        AnimatedVisibility(visible = showTopFormattingBar) {
+                            DynamicToolsPanel(
+                                activeTab = com.example.model.EditorTab.HOME,
+                                selectionState = selectionState,
+                                pageConfig = pageConfig,
+                                onToggleBold = { EditorCommands.toggleBold(webViewRef) },
+                                onToggleItalic = { EditorCommands.toggleItalic(webViewRef) },
+                                onToggleUnderline = { EditorCommands.toggleUnderline(webViewRef) },
+                                onToggleStrike = { EditorCommands.toggleStrikethrough(webViewRef) },
+                                onToggleSuperscript = { EditorCommands.toggleSuperscript(webViewRef) },
+                                onToggleSubscript = { EditorCommands.toggleSubscript(webViewRef) },
+                                onClearFormatting = { EditorCommands.clearFormatting(webViewRef) },
+                                onToggleFormatPainter = { EditorCommands.toggleFormatPainter(webViewRef) },
+                                onSelectHeading = { EditorCommands.setHeading(webViewRef, it) },
+                                onSetDirection = { EditorCommands.setDirection(webViewRef, it) },
+                                onSelectFontFamily = { EditorCommands.setFontFamily(webViewRef, it) },
+                                onSelectFontSize = { EditorCommands.setFontSize(webViewRef, it) },
+                                onIncreaseFontSize = { EditorCommands.increaseFontSize(webViewRef) },
+                                onDecreaseFontSize = { EditorCommands.decreaseFontSize(webViewRef) },
+                                onSelectForeColor = { EditorCommands.setForeColor(webViewRef, it) },
+                                onSelectBackColor = { EditorCommands.setBackColor(webViewRef, it) },
+                                onSetAlignment = { EditorCommands.setAlignment(webViewRef, it) },
+                                onSetLineHeight = { EditorCommands.setLineHeight(webViewRef, it) },
+                                onToggleBulletList = { EditorCommands.toggleBulletList(webViewRef) },
+                                onToggleNumberList = { EditorCommands.toggleNumberList(webViewRef) },
+                                onIndent = { EditorCommands.indent(webViewRef) },
+                                onOutdent = { EditorCommands.outdent(webViewRef) },
+                                onOpenTableDialog = { showTableDialog = true },
+                                onAddTableRow = {},
+                                onAddTableCol = {},
+                                onDeleteTableRow = {},
+                                onDeleteTableCol = {},
+                                onMergeTableCells = {},
+                                onSetCellBackground = {},
+                                onPickImageGallery = {},
+                                onTakePhotoCamera = {},
+                                onInsertShape = {},
+                                onOpenTextBoxDialog = {},
+                                onOpenHyperlinkDialog = {},
+                                onInsertPageBreak = {},
+                                onInsertPageNumber = {},
+                                onInsertDateTime = {},
+                                onInsertHorizontalRule = {},
+                                onOpenSignatureDialog = {},
+                                onOpenCommentDialog = {},
+                                onInsertStamp = {},
+                                onSelectMarginPreset = {},
+                                onOpenCustomMarginDialog = {},
+                                onSelectOrientation = {},
+                                onSelectPageSize = {},
+                                onSelectColumns = {},
+                                onSelectPageTheme = {},
+                                onOpenFindReplaceDialog = {},
+                                onToggleReadMode = {},
+                                onSelectZoom = {}
+                            )
                         }
-                    )
+                    }
                 }
 
                 // Main Canvas (WebView)
@@ -514,6 +580,14 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             onInsertPageNumber = { EditorCommands.insertPageNumber(webViewRef) },
                             onInsertDateTime = { EditorCommands.insertDateTime(webViewRef) },
                             onInsertHorizontalRule = { EditorCommands.insertHorizontalRule(webViewRef) },
+                            onOpenSignatureDialog = { showSignatureDialog = true },
+                            onOpenCommentDialog = { showCommentDialog = true },
+                            onInsertStamp = { stamp ->
+                                EditorCommands.insertHtml(
+                                    webViewRef,
+                                    "<span style=\"display:inline-block;border:2px solid #DC2626;color:#DC2626;padding:4px 12px;border-radius:6px;font-weight:bold;margin:4px;\">$stamp</span>&nbsp;"
+                                )
+                            },
                             onSelectMarginPreset = { preset ->
                                 viewModel.updatePageConfig { it.copy(marginPreset = preset) }
                                 EditorCommands.setPageConfig(webViewRef, pageConfig.copy(marginPreset = preset))
@@ -752,6 +826,27 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             onDismiss = { showFindReplaceDialog = false },
             onReplace = { find, replace, all ->
                 EditorCommands.findAndReplace(webViewRef, find, replace, all)
+            }
+        )
+    }
+
+    if (showSignatureDialog) {
+        SignaturePadDialog(
+            onDismiss = { showSignatureDialog = false },
+            onInsertSignature = { dataUrl ->
+                EditorCommands.insertImage(webViewRef, dataUrl, 45)
+            }
+        )
+    }
+
+    if (showCommentDialog) {
+        CommentDialog(
+            onDismiss = { showCommentDialog = false },
+            onInsertComment = { comment ->
+                EditorCommands.insertHtml(
+                    webViewRef,
+                    "<span style=\"background-color:#FEF08A;border-inline-start:3px solid #D97706;padding:2px 8px;margin:2px;display:inline-block;\">💬 $comment</span>&nbsp;"
+                )
             }
         )
     }

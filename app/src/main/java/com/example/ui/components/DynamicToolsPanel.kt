@@ -132,6 +132,9 @@ fun DynamicToolsPanel(
     onInsertPageNumber: () -> Unit,
     onInsertDateTime: () -> Unit,
     onInsertHorizontalRule: () -> Unit,
+    onOpenSignatureDialog: () -> Unit,
+    onOpenCommentDialog: () -> Unit,
+    onInsertStamp: (String) -> Unit,
     // Layout actions
     onSelectMarginPreset: (MarginPreset) -> Unit,
     onOpenCustomMarginDialog: () -> Unit,
@@ -194,7 +197,10 @@ fun DynamicToolsPanel(
                     onInsertPageBreak = onInsertPageBreak,
                     onInsertPageNumber = onInsertPageNumber,
                     onInsertDateTime = onInsertDateTime,
-                    onInsertHorizontalRule = onInsertHorizontalRule
+                    onInsertHorizontalRule = onInsertHorizontalRule,
+                    onOpenSignatureDialog = onOpenSignatureDialog,
+                    onOpenCommentDialog = onOpenCommentDialog,
+                    onInsertStamp = onInsertStamp
                 )
                 EditorTab.LAYOUT -> LayoutToolsContent(
                     pageConfig = pageConfig,
@@ -256,7 +262,11 @@ private fun HomeToolsContent(
         "H3" to "عنوان 3",
         "BLOCKQUOTE" to "اقتباس"
     )
-    val fonts = listOf("Arial", "Times New Roman", "Georgia", "Courier New", "Verdana", "Tahoma")
+    val fonts = listOf(
+        "Amiri", "Cairo", "Tajawal", "Reem Kufi", "Almarai",
+        "Playfair Display", "Merriweather", "Roboto", "Montserrat",
+        "Arial", "Times New Roman", "Georgia", "Courier New", "Tahoma"
+    )
     val sizes = listOf(8, 10, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72)
     val colors = listOf(
         "#1E293B" to Color(0xFF1E293B),
@@ -497,9 +507,13 @@ private fun InsertToolsContent(
     onInsertPageBreak: () -> Unit,
     onInsertPageNumber: () -> Unit,
     onInsertDateTime: () -> Unit,
-    onInsertHorizontalRule: () -> Unit
+    onInsertHorizontalRule: () -> Unit,
+    onOpenSignatureDialog: () -> Unit,
+    onOpenCommentDialog: () -> Unit,
+    onInsertStamp: (String) -> Unit
 ) {
     var shapesMenuExpanded by remember { mutableStateOf(false) }
+    var stampsMenuExpanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -539,6 +553,23 @@ private fun InsertToolsContent(
             ActionChipButton(Icons.Default.Numbers, "رقم الصفحة", onInsertPageNumber, "insert_page_number")
             ActionChipButton(Icons.Default.CalendarToday, "التاريخ", onInsertDateTime, "insert_date")
             ActionChipButton(Icons.Default.HorizontalRule, "خط فاصل", onInsertHorizontalRule, "insert_hr")
+            ActionChipButton(Icons.Default.FormatPaint, "التوقيع", onOpenSignatureDialog, "insert_signature")
+            ActionChipButton(Icons.Default.TextFields, "التعليق", onOpenCommentDialog, "insert_comment")
+
+            Box {
+                ActionChipButton(Icons.Default.Category, "أختام رسمية", { stampsMenuExpanded = true }, "insert_stamp")
+                DropdownMenu(
+                    expanded = stampsMenuExpanded,
+                    onDismissRequest = { stampsMenuExpanded = false }
+                ) {
+                    listOf("معتمد ✓", "سري للغاية", "نسخة أصلية", "عاجل !").forEach { stamp ->
+                        DropdownMenuItem(text = { Text(stamp) }, onClick = {
+                            onInsertStamp(stamp)
+                            stampsMenuExpanded = false
+                        })
+                    }
+                }
+            }
         }
 
         if (inTable) {

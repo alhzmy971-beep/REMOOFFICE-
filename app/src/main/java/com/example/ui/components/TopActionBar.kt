@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Save
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 fun TopActionBar(
     documentTitle: String,
     onBackHome: () -> Unit,
+    onToggleTopToolbar: () -> Unit,
     onTitleClick: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -59,6 +61,16 @@ fun TopActionBar(
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "العودة للرئيسية",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            IconButton(
+                onClick = onToggleTopToolbar,
+                modifier = Modifier.testTag("toggle_top_toolbar_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Menu,
+                    contentDescription = "شريط أدوات التحرير ☰",
                     tint = MaterialTheme.colorScheme.primary
                 )
             }

@@ -1,8 +1,14 @@
 package com.example.ui.components
 
+import android.graphics.Bitmap
+import android.graphics.Paint
+import android.graphics.Path
+import android.util.Base64
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,9 +37,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import java.io.ByteArrayOutputStream
 
 @Composable
 fun RenameDocumentDialog(
@@ -287,6 +300,148 @@ fun FindReplaceDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("إغلاق") }
+        }
+    )
+}
+
+@Composable
+fun SignaturePadDialog(
+    onDismiss: () -> Unit,
+    onInsertSignature: (String) -> Unit
+) {
+    var strokes by remember { mutableStateOf<List<List<Offset>>>(emptyList()) }
+    var currentStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("التوقيع الرقمي الحي") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "ارسم توقيعك بإصبعك داخل المربع:",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White)
+                        .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
+                ) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .pointerInput(Unit) {
+                                detectDragGestures(
+                                    onDragStart = { offset ->
+                                        currentStroke = listOf(offset)
+                                    },
+                                    onDrag = { change, _ ->
+                                        change.consume()
+                                        currentStroke = currentStroke + change.position
+                                    },
+                                    onDragEnd = {
+                                        if (currentStroke.isNotEmpty()) {
+                                            strokes = strokes + listOf(currentStroke)
+                                            currentStroke = emptyList()
+                                        }
+                                    }
+                                )
+                            }
+                    ) {
+                        val allStrokes = strokes + if (currentStroke.isNotEmpty()) listOf(currentStroke) else emptyList()
+                        allStrokes.forEach { pts ->
+                            if (pts.size > 1) {
+                                val composePath = androidx.compose.ui.graphics.Path().apply {
+                                    moveTo(pts.first().x, pts.first().y)
+                                    pts.drop(1).forEach { lineTo(it.x, it.y) }
+                                }
+                                drawPath(
+                                    path = composePath,
+                                    color = Color(0xFF0F172A),
+                                    style = Stroke(width = 6f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    strokes = emptyList()
+                    currentStroke = emptyList()
+                }) {
+                    Text("مسح")
+                }
+                Button(onClick = {
+                    if (strokes.isNotEmpty()) {
+                        val bmp = Bitmap.createBitmap(600, 260, Bitmap.Config.ARGB_8888)
+                        val canvas = android.graphics.Canvas(bmp)
+                        val paint = Paint().apply {
+                            color = android.graphics.Color.parseColor("#0F172A")
+                            strokeWidth = 7f
+                            style = Paint.Style.STROKE
+                            strokeCap = Paint.Cap.ROUND
+                            strokeJoin = Paint.Join.ROUND
+                            isAntiAlias = true
+                        }
+                        strokes.forEach { pts ->
+                            if (pts.size > 1) {
+                                val p = Path()
+                                p.moveTo(pts.first().x, pts.first().y)
+                                pts.drop(1).forEach { p.lineTo(it.x, it.y) }
+                                canvas.drawPath(p, paint)
+                            }
+                        }
+                        val out = ByteArrayOutputStream()
+                        bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                        val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                        onInsertSignature("data:image/png;base64,$b64")
+                    }
+                    onDismiss()
+                }) {
+                    Text("إدراج التوقيع")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إلغاء") }
+        }
+    )
+}
+
+@Composable
+fun CommentDialog(
+    onDismiss: () -> Unit,
+    onInsertComment: (String) -> Unit
+) {
+    var comment by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("إضافة تعليق / ملاحظة") },
+        text = {
+            OutlinedTextField(
+                value = comment,
+                onValueChange = { comment = it },
+                label = { Text("نص التعليق") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            Button(onClick = {
+                if (comment.isNotBlank()) onInsertComment(comment.trim())
+                onDismiss()
+            }) {
+                Text("إدراج")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إلغاء") }
         }
     )
 }
