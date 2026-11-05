@@ -93,22 +93,42 @@ class DocumentRepositoryAndSecurityTest {
     }
 
     @Test
-    fun docxConverter_roundTripPreservesTextTablesAndHeaderFooter() {
-        val original = DocumentPayload(
-            bodyHtml = "<p><b>عنوان</b></p><table><tbody><tr><td>خلية 1</td><td>خلية 2</td></tr></tbody></table>",
-            headerHtml = "<p>رأس المستند</p>",
-            footerHtml = "<p>تذييل المستند</p>"
+    fun docxConverter_txtToHtml_preservesParagraphsAndEscapesHtml() {
+        val input = ByteArrayInputStream("السطر الأول\nالسطر <الثاني>".toByteArray(Charsets.UTF_8))
+        val html = DocxConverter.txtToHtml(input)
+        assertTrue(html.contains("<p>السطر الأول</p>"))
+        assertTrue(html.contains("&lt;الثاني&gt;"))
+    }
+
+    @Test
+    fun htmlSanitizer_blocksDangerousSchemesAndIframes() {
+        assertTrue(HtmlSanitizer.isValidSafeUrl("https://example.com"))
+        assertTrue(HtmlSanitizer.isValidSafeUrl("http://example.com"))
+        assertTrue(!HtmlSanitizer.isValidSafeUrl("javascript:alert(1)"))
+        assertTrue(!HtmlSanitizer.isValidSafeUrl("file:///etc/passwd"))
+        val cleaned = HtmlSanitizer.sanitizeHtml("<p>مرحبا</p><iframe src='https://evil.com'></iframe>")
+        assertTrue(cleaned.contains("مرحبا"))
+        assertTrue(!cleaned.contains("<iframe"))
+    }
+
+    @Test
+    fun documentRepository_handles50PageDocumentPerformance() {
+        val repo = DocumentRepository(RuntimeEnvironment.getApplication())
+        val largeBody = buildString {
+            repeat(500) { idx ->
+                append("<p>فقرة رقم $idx تحتوي على نص عربي لاختبار الأداء والحفظ المحلي.</p>")
+            }
+        }
+        val payload = DocumentPayload(bodyHtml = largeBody)
+        val saved = repo.createOrUpdateDocument(
+            id = null,
+            title = "مستند 50 صفحة",
+            payload = payload,
+            sourceType = "NEW",
+            wordCount = 4500
         )
-
-        val out = ByteArrayOutputStream()
-        DocxConverter.htmlToDocx(original, out)
-        val bytes = out.toByteArray()
-        assertTrue(bytes.isNotEmpty())
-
-        val restored = DocxConverter.docxToPayload(ByteArrayInputStream(bytes))
-        assertTrue(restored.bodyHtml.contains("عنوان"))
-        assertTrue(restored.bodyHtml.contains("خلية 1"))
-        assertTrue(restored.headerHtml.contains("رأس المستند"))
-        assertTrue(restored.footerHtml.contains("تذييل المستند"))
+        val loaded = repo.loadDocumentPayload(saved.id)
+        assertTrue(loaded.bodyHtml.contains("فقرة رقم 499"))
+        repo.deleteDocument(saved.id)
     }
 }

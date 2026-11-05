@@ -1,1 +1,6 @@
 /build
+/.build-outputs/
+*.jks
+*.keystore
+local.properties
+.env

@@ -147,10 +147,14 @@ fun DynamicToolsPanel(
     onSelectPageSize: (PageSize) -> Unit,
     onSelectColumns: (Int) -> Unit,
     onSelectPageTheme: (PageTheme) -> Unit,
-    // Review actions
+    // Review & View & File actions
     onOpenFindReplaceDialog: () -> Unit,
     onToggleReadMode: () -> Unit,
-    onSelectZoom: (Float) -> Unit
+    onSelectZoom: (Float) -> Unit,
+    onSaveDocx: () -> Unit = {},
+    onSharePdf: () -> Unit = {},
+    onOpenDocx: () -> Unit = {},
+    onRenameDoc: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -222,9 +226,19 @@ fun DynamicToolsPanel(
                     onSelectColumns = onSelectColumns,
                     onSelectPageTheme = onSelectPageTheme
                 )
+                EditorTab.FILE -> FileToolsContent(
+                    onSaveDocx = onSaveDocx,
+                    onSharePdf = onSharePdf,
+                    onOpenDocx = onOpenDocx,
+                    onRenameDoc = onRenameDoc
+                )
                 EditorTab.REVIEW -> ReviewToolsContent(
                     state = selectionState,
                     onOpenFindReplaceDialog = onOpenFindReplaceDialog,
+                    onOpenCommentDialog = onOpenCommentDialog
+                )
+                EditorTab.VIEW -> ViewToolsContent(
+                    state = selectionState,
                     onToggleReadMode = onToggleReadMode,
                     onSelectZoom = onSelectZoom
                 )
@@ -722,9 +736,61 @@ private fun LayoutToolsContent(
 }
 
 @Composable
+private fun FileToolsContent(
+    onSaveDocx: () -> Unit,
+    onSharePdf: () -> Unit,
+    onOpenDocx: () -> Unit,
+    onRenameDoc: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        ActionChipButton(Icons.Default.GridOn, "حفظ كـ Word (.docx)", onSaveDocx, "file_save_docx")
+        ActionChipButton(Icons.Default.Category, "تصدير / طباعة PDF", onSharePdf, "file_export_pdf")
+        ActionChipButton(Icons.Default.Image, "فتح مستند", onOpenDocx, "file_open_doc")
+        ActionChipButton(Icons.Default.TextFields, "إعادة تسمية", onRenameDoc, "file_rename_doc")
+    }
+}
+
+@Composable
 private fun ReviewToolsContent(
     state: EditorSelectionState,
     onOpenFindReplaceDialog: () -> Unit,
+    onOpenCommentDialog: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        ActionChipButton(Icons.Default.FindReplace, "بحث واستبدال", onOpenFindReplaceDialog, "find_replace_button")
+        ActionChipButton(Icons.Default.TextFields, "إضافة تعليق", onOpenCommentDialog, "review_add_comment")
+
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+        ) {
+            Text(
+                text = "الصفحات: ${state.pageCount} | الكلمات: ${state.wordCount} | الحروف: ${state.charCount}",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ViewToolsContent(
+    state: EditorSelectionState,
     onToggleReadMode: () -> Unit,
     onSelectZoom: (Float) -> Unit
 ) {
@@ -738,7 +804,6 @@ private fun ReviewToolsContent(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        ActionChipButton(Icons.Default.FindReplace, "بحث واستبدال", onOpenFindReplaceDialog, "find_replace_button")
         ActionChipButton(Icons.AutoMirrored.Filled.MenuBook, "وضع القراءة", onToggleReadMode, "read_mode_button")
 
         Box {
@@ -765,7 +830,7 @@ private fun ReviewToolsContent(
             modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
         ) {
             Text(
-                text = "الكلمات: ${state.wordCount} | الحروف: ${state.charCount} | الفقرات: ${state.paragraphCount}",
+                text = "الفقرات: ${state.paragraphCount} | الصفحات: ${state.pageCount}",
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
             )
