@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="ar" dir="auto">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=4.0, user-scalable=yes" />
+<title>REMOOFFICE محرر</title>
+<style>
+  :root {
+    --page-width: 210mm;
+    --page-min-height: 297mm;
+    --page-margin-top: 25.4mm;
+    --page-margin-right: 25.4mm;
+    --page-margin-bottom: 25.4mm;
+    --page-margin-left: 25.4mm;
+    --page-columns: 1;
+    --page-bg: #FFFFFF;
+    --page-text: #1E293B;
+    --zoom-scale: 1;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #E8ECF2;
+    font-family: 'Arial', 'Tahoma', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .workspace {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 12px 64px 12px;
+    min-height: 100vh;
+    transform: scale(var(--zoom-scale));
+    transform-origin: top center;
+  }
+
+  .page-container {
+    width: 100%;
+    max-width: var(--page-width);
+    min-height: var(--page-min-height);
+    background-color: var(--page-bg);
+    color: var(--page-text);
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.12), 0 1px 4px rgba(15, 23, 42, 0.08);
+    border-radius: 3px;
+    padding: var(--page-margin-top) var(--page-margin-right) var(--page-margin-bottom) var(--page-margin-left);
+    display: flex;
+    flex-direction: column;
+    transition: padding 0.2s ease, max-width 0.2s ease, background-color 0.2s ease;
+  }
+
+  .page-header, .page-footer {
+    font-size: 10pt;
+    color: #64748B;
+    border-bottom: 1px dashed #CBD5E1;
+    padding-bottom: 6px;
+    margin-bottom: 12px;
+    outline: none;
+    min-height: 20px;
+  }
+
+  .page-footer {
+    border-bottom: none;
+    border-top: 1px dashed #CBD5E1;
+    padding-bottom: 0;
+    padding-top: 6px;
+    margin-top: auto;
+    margin-bottom: 0;
+  }
+
+  .page-header:empty::before {
+    content: "انقر لإضافة رأس الصفحة (Header)...";
+    color: #94A3B8;
+  }
+
+  .page-footer:empty::before {
+    content: "انقر لإضافة تذييل الصفحة (Footer)...";
+    color: #94A3B8;
+  }
+
+  .page {
+    flex: 1;
+    outline: none;
+    font-size: 14pt;
+    line-height: 1.5;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    column-count: var(--page-columns);
+    column-gap: 24px;
+  }
+
+  .page-container.read-mode {
+    box-shadow: none;
+  }
+
+  .page-container.read-mode .page-header:empty,
+  .page-container.read-mode .page-footer:empty {
+    display: none;
+  }
+
+  .page p {
+    margin: 0 0 8pt 0;
+  }
+
+  .page h1 { font-size: 22pt; margin: 12pt 0 6pt 0; color: #0F172A; }
+  .page h2 { font-size: 18pt; margin: 10pt 0 5pt 0; color: #1E293B; }
+  .page h3 { font-size: 15pt; margin: 8pt 0 4pt 0; color: #334155; }
+  .page blockquote {
+    border-inline-start: 4px solid #1A56DB;
+    margin: 8pt 0;
+    padding: 6pt 12pt;
+    background: rgba(26, 86, 219, 0.05);
+    color: #475569;
+  }
+
+  .page hr {
+    border: none;
+    border-top: 1.5px solid #CBD5E1;
+    margin: 12pt 0;
+  }
+
+  .page table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    table-layout: fixed;
+  }
+
+  .page td, .page th {
+    border: 1px solid #94A3B8;
+    padding: 6px 8px;
+    min-width: 24px;
+    vertical-align: top;
+    word-break: break-word;
+  }
+
+  .page td.selected-cell {
+    outline: 2px solid #1A56DB;
+  }
+
+  .page img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    margin: 6px 0;
+    display: inline-block;
+  }
+
+  .page a {
+    color: #1A56DB;
+    text-decoration: underline;
+  }
+
+  .page-break {
+    border-top: 2px dashed #94A3B8;
+    margin: 18px 0;
+    padding-top: 4px;
+    text-align: center;
+    font-size: 10pt;
+    color: #64748B;
+    user-select: none;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .page-break::after {
+    content: "— فاصل صفحة / Page Break —";
+  }
+
+  .page-number {
+    display: inline-block;
+    padding: 1px 6px;
+    background: #F1F5F9;
+    border-radius: 4px;
+    font-size: 11pt;
+    color: #475569;
+  }
+
+  .text-box {
+    border: 1.5px solid #1A56DB;
+    background-color: #F8FAFC;
+    padding: 10px 14px;
+    margin: 10px 0;
+    border-radius: 6px;
+    min-height: 44px;
+  }
+
+  .shape-block {
+    margin: 10px 0;
+    display: inline-block;
+  }
+
+  @media print {
+    html, body { background: #FFFFFF; }
+    .workspace { padding: 0; transform: none; }
+    .page-container { box-shadow: none; max-width: 100%; border-radius: 0; }
+    .page-header:empty, .page-footer:empty { display: none; }
+    .page-break { border: none; margin: 0; padding: 0; }
+    .page-break::after { content: ""; }
+  }
+</style>
+</head>
+<body>
+<div class="workspace">
+  <div id="pageContainer" class="page-container">
+    <div id="pageHeader" class="page-header" contenteditable="true"></div>
+    <div id="editor" class="page" contenteditable="true" spellcheck="true">
+      <p>مرحباً بك في <b>REMOOFFICE محرر</b> — محرر المستندات الاحترافي المتكامل.</p>
+      <p>ابدأ الكتابة هنا أو استخدم شريط الأدوات بالأسفل لتنسيق النصوص، إدراج الجداول، الصور، وتخطيط الصفحة.</p>
+    </div>
+    <div id="pageFooter" class="page-footer" contenteditable="true"></div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const editor = document.getElementById('editor');
+  const pageContainer = document.getElementById('pageContainer');
+  let currentFontSizePt = 14;
+  let currentLineHeight = '1.5';
+  let lastSelectedCell = null;
+  let copiedFormat = null;
+
+  function focusEditor() {
+    if (editor.getAttribute('contenteditable') === 'true') {
+      editor.focus();
+    }
+  }
+
+  function getClosestTag(node, tagName) {
+    while (node && node !== editor) {
+      if (node.nodeType === 1 && node.tagName.toLowerCase() === tagName.toLowerCase()) {
+        return node;
+      }
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function rgbToHex(rgb) {
+    if (!rgb || rgb === 'transparent' || rgb === 'rgba(0, 0, 0, 0)') return '';
+    if (rgb.startsWith('#')) return rgb.toUpperCase();
+    const match = rgb.match(/\d+/g);
+    if (!match || match.length < 3) return '';
+    return '#' + match.slice(0, 3).map(x => {
+      const hex = parseInt(x, 10).toString(16);
+      return hex.length === 1 ? '0' + hex : hex;
+    }).join('').toUpperCase();
+  }
+
+  function computeStats() {
+    const text = (editor.innerText || '').trim();
+    const words = text.length === 0 ? 0 : text.split(/\s+/).filter(Boolean).length;
+    const chars = text.length;
+    const paragraphs = editor.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote').length || (text.length > 0 ? 1 : 0);
+    return { words, chars, paragraphs };
+  }
+
+  function notifySelectionState() {
+    try {
+      const sel = window.getSelection();
+      let anchorNode = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).startContainer : null;
+      const cell = getClosestTag(anchorNode, 'td') || getClosestTag(anchorNode, 'th');
+      if (lastSelectedCell && lastSelectedCell !== cell) {
+        lastSelectedCell.classList.remove('selected-cell');
+      }
+      if (cell) {
+        cell.classList.add('selected-cell');
+      }
+      lastSelectedCell = cell;
+
+      let alignment = 'left';
+      if (document.queryCommandState('justifyCenter')) alignment = 'center';
+      else if (document.queryCommandState('justifyRight')) alignment = 'right';
+      else if (document.queryCommandState('justifyFull')) alignment = 'justify';
+
+      const stats = computeStats();
+      const state = {
+        isBold: document.queryCommandState('bold'),
+        isItalic: document.queryCommandState('italic'),
+        isUnderline: document.queryCommandState('underline'),
+        isStrikethrough: document.queryCommandState('strikeThrough'),
+        isSuperscript: document.queryCommandState('superscript'),
+        isSubscript: document.queryCommandState('subscript'),
+        fontName: (document.queryCommandValue('fontName') || 'Arial').replace(/['"]/g, ''),
+        fontSize: currentFontSizePt,
+        foreColor: rgbToHex(document.queryCommandValue('foreColor')) || '#1E293B',
+        backColor: rgbToHex(document.queryCommandValue('backColor')) || '',
+        alignment: alignment,
+        lineHeight: currentLineHeight,
+        isBulletList: document.queryCommandState('insertUnorderedList'),
+        isNumberList: document.queryCommandState('insertOrderedList'),
+        inTable: Boolean(cell),
+        formatPainterActive: Boolean(copiedFormat),
+        wordCount: stats.words,
+        charCount: stats.chars,
+        paragraphCount: stats.paragraphs
+      };
+
+      if (window.AndroidBridge && window.AndroidBridge.onSelectionChanged) {
+        window.AndroidBridge.onSelectionChanged(JSON.stringify(state));
+      }
+    } catch (e) {}
+  }
+
+  function notifyContentChanged() {
+    if (window.AndroidBridge && window.AndroidBridge.onContentChanged) {
+      window.AndroidBridge.onContentChanged(editor.innerHTML);
+    }
+  }
+
+  document.addEventListener('selectionchange', notifySelectionState);
+  editor.addEventListener('keyup', notifySelectionState);
+  editor.addEventListener('mouseup', function() {
+    if (copiedFormat) {
+      applyCopiedFormat();
+    }
+    notifySelectionState();
+  });
+  editor.addEventListener('input', function() {
+    notifySelectionState();
+    notifyContentChanged();
+  });
+
+  function applyCopiedFormat() {
+    if (!copiedFormat) return;
+    const fmt = copiedFormat;
+    copiedFormat = null;
+    if (document.queryCommandState('bold') !== fmt.bold) document.execCommand('bold', false, null);
+    if (document.queryCommandState('italic') !== fmt.italic) document.execCommand('italic', false, null);
+    if (document.queryCommandState('underline') !== fmt.underline) document.execCommand('underline', false, null);
+    if (fmt.foreColor) document.execCommand('foreColor', false, fmt.foreColor);
+    if (fmt.fontName) document.execCommand('fontName', false, fmt.fontName);
+    notifyContentChanged();
+  }
+
+  function exec(cmd, val = null) {
+    focusEditor();
+    document.execCommand(cmd, false, val);
+    notifySelectionState();
+    notifyContentChanged();
+  }
+
+  window.editorApi = {
+    undo: () => exec('undo'),
+    redo: () => exec('redo'),
+    toggleBold: () => exec('bold'),
+    toggleItalic: () => exec('italic'),
+    toggleUnderline: () => exec('underline'),
+    toggleStrikethrough: () => exec('strikeThrough'),
+    toggleSuperscript: () => exec('superscript'),
+    toggleSubscript: () => exec('subscript'),
+    clearFormatting: () => exec('removeFormat'),
+
+    toggleFormatPainter: () => {
+      if (copiedFormat) {
+        copiedFormat = null;
+      } else {
+        copiedFormat = {
+          bold: document.queryCommandState('bold'),
+          italic: document.queryCommandState('italic'),
+          underline: document.queryCommandState('underline'),
+          foreColor: document.queryCommandValue('foreColor'),
+          fontName: document.queryCommandValue('fontName')
+        };
+      }
+      notifySelectionState();
+    },
+
+    setHeading: (tag) => exec('formatBlock', tag),
+
+    setDirection: (dir) => {
+      focusEditor();
+      editor.setAttribute('dir', dir);
+      exec(dir === 'rtl' ? 'justifyRight' : 'justifyLeft');
+    },
+
+    setFontFamily: (font) => exec('fontName', font),
+
+    setFontSize: (pt) => {
+      currentFontSizePt = Math.max(8, Math.min(72, parseInt(pt, 10) || 14));
+      focusEditor();
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+        document.execCommand('fontSize', false, '7');
+        const fontElements = editor.querySelectorAll('font[size="7"]');
+        fontElements.forEach(el => {
+          el.removeAttribute('size');
+          el.style.fontSize = currentFontSizePt + 'pt';
+        });
+      } else {
+        editor.style.fontSize = currentFontSizePt + 'pt';
+      }
+      notifySelectionState();
+      notifyContentChanged();
+    },
+
+    increaseFontSize: () => window.editorApi.setFontSize(currentFontSizePt + 2),
+    decreaseFontSize: () => window.editorApi.setFontSize(currentFontSizePt - 2),
+
+    setForeColor: (hex) => exec('foreColor', hex),
+    setBackColor: (hex) => exec('hiliteColor', hex),
+
+    setAlignment: (align) => {
+      const map = {
+        left: 'justifyLeft',
+        center: 'justifyCenter',
+        right: 'justifyRight',
+        justify: 'justifyFull'
+      };
+      exec(map[align] || 'justifyLeft');
+    },
+
+    setLineHeight: (lh) => {
+      currentLineHeight = String(lh);
+      editor.style.lineHeight = currentLineHeight;
+      notifySelectionState();
+      notifyContentChanged();
+    },
+
+    toggleBulletList: () => exec('insertUnorderedList'),
+    toggleNumberList: () => exec('insertOrderedList'),
+    indent: () => exec('indent'),
+    outdent: () => exec('outdent'),
+
+    insertTable: (rows, cols) => {
+      focusEditor();
+      let html = '<table><tbody>';
+      for (let r = 0; r < rows; r++) {
+        html += '<tr>';
+        for (let c = 0; c < cols; c++) {
+          html += '<td><br></td>';
+        }
+        html += '</tr>';
+      }
+      html += '</tbody></table><p><br></p>';
+      document.execCommand('insertHTML', false, html);
+      notifySelectionState();
+      notifyContentChanged();
+    },
+
+    addTableRow: () => {
+      const sel = window.getSelection();
+      const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
+      if (!cell) return;
+      const row = cell.parentNode;
+      const newRow = row.cloneNode(true);
+      Array.from(newRow.cells).forEach(c => { c.innerHTML = '<br>'; c.classList.remove('selected-cell'); });
+      row.parentNode.insertBefore(newRow, row.nextSibling);
+      notifyContentChanged();
+    },
+
+    addTableCol: () => {
+      const sel = window.getSelection();
+      const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
+      if (!cell) return;
+      const colIndex = cell.cellIndex;
+      const table = getClosestTag(cell, 'table');
+      if (!table) return;
+      Array.from(table.rows).forEach(r => {
+        const newCell = r.insertCell(colIndex + 1);
+        newCell.innerHTML = '<br>';
+      });
+      notifyContentChanged();
+    },
+
+    deleteTableRow: () => {
+      const sel = window.getSelection();
+      const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
+      if (!cell) return;
+      const row = cell.parentNode;
+      const table = getClosestTag(row, 'table');
+      if (table && table.rows.length > 1) {
+        row.parentNode.removeChild(row);
+      } else if (table) {
+        table.parentNode.removeChild(table);
+      }
+      lastSelectedCell = null;
+      notifySelectionState();
+      notifyContentChanged();
+    },
+
+    deleteTableCol: () => {
+      const sel = window.getSelection();
+      const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
+      if (!cell) return;
+      const colIndex = cell.cellIndex;
+      const table = getClosestTag(cell, 'table');
+      if (!table) return;
+      if (table.rows[0].cells.length <= 1) {
+        table.parentNode.removeChild(table);
+      } else {
+        Array.from(table.rows).forEach(r => {
+          if (r.cells[colIndex]) r.deleteCell(colIndex);
+        });
+      }
+      lastSelectedCell = null;
+      notifySelectionState();
+      notifyContentChanged();
+    },
+
+    mergeTableCells: () => {
+      const sel = window.getSelection();
+      const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
+      if (!cell) return;
+      const nextCell = cell.nextElementSibling;
+      if (nextCell) {
+        cell.colSpan = (cell.colSpan || 1) + (nextCell.colSpan || 1);
+        cell.innerHTML += ' ' + nextCell.innerHTML;
+        nextCell.parentNode.removeChild(nextCell);
+        notifyContentChanged();
+      }
+    },
+
+    setCellBackground: (hex) => {
+      const sel = window.getSelection();
+      const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
+      if (cell) {
+        cell.style.backgroundColor = hex;
+        notifyContentChanged();
+      }
+    },
+
+    insertImage: (dataUrl, widthPercent) => {
+      focusEditor();
+      const w = widthPercent || 80;
+      const html = `<p><img src="${dataUrl}" style="width: ${w}%;" /></p>`;
+      document.execCommand('insertHTML', false, html);
+      notifySelectionState();
+      notifyContentChanged();
+    },
+
+    insertShape: (shapeType) => {
+      focusEditor();
+      let svg = '';
+      if (shapeType === 'rectangle') {
+        svg = '<svg width="160" height="90" viewBox="0 0 160 90"><rect x="4" y="4" width="152" height="82" rx="8" fill="#DBEAFE" stroke="#1A56DB" stroke-width="3"/></svg>';
+      } else if (shapeType === 'circle') {
+        svg = '<svg width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="#FEF3C7" stroke="#D97706" stroke-width="3"/></svg>';
+      } else if (shapeType === 'arrow') {
+        svg = '<svg width="160" height="50" viewBox="0 0 160 50"><line x1="8" y1="25" x2="140" y2="25" stroke="#1A56DB" stroke-width="4"/><polygon points="140,15 156,25 140,35" fill="#1A56DB"/></svg>';
+      } else if (shapeType === 'star') {
+        svg = '<svg width="100" height="100" viewBox="0 0 100 100"><polygon points="50,5 63,35 95,38 71,59 78,91 50,74 22,91 29,59 5,38 37,35" fill="#FEF08A" stroke="#CA8A04" stroke-width="3"/></svg>';
+      } else {
+        svg = '<svg width="180" height="90" viewBox="0 0 180 90"><rect x="4" y="4" width="172" height="66" rx="10" fill="#ECFDF5" stroke="#059669" stroke-width="2.5"/><polygon points="30,70 45,70 25,86" fill="#ECFDF5" stroke="#059669" stroke-width="2.5"/></svg>';
+      }
+      document.execCommand('insertHTML', false, `<div class="shape-block">${svg}</div><p><br></p>`);
+      notifyContentChanged();
+    },
+
+    insertTextBox: (text) => {
+      focusEditor();
+      const content = text || 'مربع نص قابل للتعديل — Editable Text Box';
+      document.execCommand('insertHTML', false, `<div class="text-box">${content}</div><p><br></p>`);
+      notifyContentChanged();
+    },
+
+    insertHyperlink: (url, text) => {
+      focusEditor();
+      const label = text || url;
+      document.execCommand('insertHTML', false, `<a href="${url}" target="_blank">${label}</a>`);
+      notifyContentChanged();
+    },
+
+    insertPageBreak: () => {
+      focusEditor();
+      document.execCommand('insertHTML', false, '<div class="page-break" contenteditable="false"></div><p><br></p>');
+      notifyContentChanged();
+    },
+
+    insertPageNumber: () => {
+      focusEditor();
+      document.execCommand('insertHTML', false, '<span class="page-number" contenteditable="false">1</span>&nbsp;');
+      notifyContentChanged();
+    },
+
+    insertDateTime: () => {
+      focusEditor();
+      const now = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+      document.execCommand('insertHTML', false, `<span>${now}</span>&nbsp;`);
+      notifyContentChanged();
+    },
+
+    insertHorizontalRule: () => {
+      focusEditor();
+      document.execCommand('insertHTML', false, '<hr><p><br></p>');
+      notifyContentChanged();
+    },
+
+    setPageConfig: (size, orientation, marginPreset, customMarginMm, columns) => {
+      const root = document.documentElement.style;
+      const sizes = {
+        A4: { w: 210, h: 297 },
+        Letter: { w: 215.9, h: 279.4 },
+        A5: { w: 148, h: 210 }
+      };
+      const s = sizes[size] || sizes.A4;
+      const w = orientation === 'Landscape' ? s.h : s.w;
+      const h = orientation === 'Landscape' ? s.w : s.h;
+      root.setProperty('--page-width', w + 'mm');
+      root.setProperty('--page-min-height', h + 'mm');
+
+      let m = '25.4mm';
+      if (marginPreset === 'Narrow') m = '12.7mm';
+      else if (marginPreset === 'Wide') m = '38.1mm';
+      else if (marginPreset === 'Custom') m = (customMarginMm || 20) + 'mm';
+
+      root.setProperty('--page-margin-top', m);
+      root.setProperty('--page-margin-right', m);
+      root.setProperty('--page-margin-bottom', m);
+      root.setProperty('--page-margin-left', m);
+      root.setProperty('--page-columns', String(columns || 1));
+    },
+
+    setPageBackground: (bgHex, textHex) => {
+      const root = document.documentElement.style;
+      root.setProperty('--page-bg', bgHex || '#FFFFFF');
+      root.setProperty('--page-text', textHex || '#1E293B');
+    },
+
+    setZoom: (scale) => {
+      document.documentElement.style.setProperty('--zoom-scale', String(scale || 1));
+    },
+
+    findAndReplace: (findText, replaceText, replaceAll) => {
+      if (!findText) return 0;
+      const html = editor.innerHTML;
+      const escaped = findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, replaceAll ? 'g' : '');
+      const matches = html.match(new RegExp(escaped, 'g'));
+      const count = matches ? matches.length : 0;
+      if (count > 0) {
+        editor.innerHTML = html.replace(regex, replaceText || '');
+        notifySelectionState();
+        notifyContentChanged();
+      }
+      return count;
+    },
+
+    setReadMode: (enabled) => {
+      editor.setAttribute('contenteditable', enabled ? 'false' : 'true');
+      document.getElementById('pageHeader').setAttribute('contenteditable', enabled ? 'false' : 'true');
+      document.getElementById('pageFooter').setAttribute('contenteditable', enabled ? 'false' : 'true');
+      if (enabled) {
+        pageContainer.classList.add('read-mode');
+      } else {
+        pageContainer.classList.remove('read-mode');
+      }
+    },
+
+    getHtml: () => editor.innerHTML,
+
+    setHtml: (html) => {
+      editor.innerHTML = html || '<p><br></p>';
+      notifySelectionState();
+      notifyContentChanged();
+    }
+  };
+
+  setTimeout(notifySelectionState, 200);
+})();
+</script>
+</body>
+</html>
