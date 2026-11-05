@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Base64
 import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
@@ -141,10 +142,10 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     var showTemplatesDialog by remember { mutableStateOf(false) }
 
     val selectionState by viewModel.selectionState.collectAsStateWithLifecycle()
-    val currentHtml by viewModel.currentHtml.collectAsStateWithLifecycle()
+    val documentPayload by viewModel.documentPayload.collectAsStateWithLifecycle()
     val documentTitle by viewModel.documentTitle.collectAsStateWithLifecycle()
     val activeTab by viewModel.activeTab.collectAsStateWithLifecycle()
-    val pageConfig by viewModel.pageConfig.collectAsStateWithLifecycle()
+    val pageConfig = documentPayload.pageConfig
     val isReadMode by viewModel.isReadMode.collectAsStateWithLifecycle()
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
 
@@ -182,7 +183,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                 try {
                     withContext(Dispatchers.IO) {
                         context.contentResolver.openOutputStream(uri)?.use { out ->
-                            DocxConverter.htmlToDocx(currentHtml, out, pageConfig)
+                            DocxConverter.htmlToDocx(documentPayload, out)
                         }
                     }
                     viewModel.showMessage("تم حفظ المستند بنجاح بصيغة Word (.docx)")
@@ -205,31 +206,46 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     val cleanTitle = fileName.substringBeforeLast(".")
                     val isPdf = mime.contains("pdf", ignoreCase = true) ||
                         fileName.endsWith(".pdf", ignoreCase = true)
+                    val isTxt = mime.contains("text/plain", ignoreCase = true) ||
+                        fileName.endsWith(".txt", ignoreCase = true)
 
-                    val html = withContext(Dispatchers.IO) {
+                    val importedPayload = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use { input ->
-                            if (isPdf) {
-                                PdfImporter.pdfToHtml(context, input)
-                            } else {
-                                DocxConverter.docxToHtml(input)
+                            when {
+                                isPdf -> com.example.model.DocumentPayload(
+                                    bodyHtml = PdfImporter.pdfToHtml(context, input)
+                                )
+                                isTxt -> com.example.model.DocumentPayload(
+                                    bodyHtml = DocxConverter.txtToHtml(input)
+                                )
+                                else -> DocxConverter.docxToPayload(input)
                             }
-                        } ?: "<p><br></p>"
+                        } ?: com.example.model.DocumentPayload()
                     }
 
-                    val sourceType = if (isPdf) "PDF" else "WORD"
+                    val sourceType = when {
+                        isPdf -> "PDF"
+                        isTxt -> "TXT"
+                        else -> "WORD"
+                    }
                     val saved = repository.createOrUpdateDocument(
                         id = null,
                         title = cleanTitle,
-                        html = html,
+                        payload = importedPayload,
                         sourceType = sourceType,
                         wordCount = selectionState.wordCount
                     )
                     activeDocId = saved.id
                     activeSourceType = sourceType
                     viewModel.setDocumentTitle(cleanTitle)
-                    viewModel.updateHtml(html)
+                    viewModel.setDocumentPayload(importedPayload)
                     currentScreen = AppScreen.EDITOR
-                    EditorCommands.setHtml(webViewRef, html)
+                    EditorCommands.setDocumentPayload(
+                        webViewRef,
+                        importedPayload.bodyHtml,
+                        importedPayload.headerHtml,
+                        importedPayload.footerHtml
+                    )
                     viewModel.showMessage("تم استيراد المستند بنجاح")
                 } catch (e: Exception) {
                     viewModel.showMessage("تعذر استيراد الملف: ${e.localizedMessage}")
@@ -307,11 +323,11 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     )
                 },
                 onOpenSavedDocument = { doc ->
-                    val html = repository.loadDocumentHtml(doc.id)
+                    val payload = repository.loadDocumentPayload(doc.id)
                     activeDocId = doc.id
                     activeSourceType = doc.sourceType
                     viewModel.setDocumentTitle(doc.title)
-                    viewModel.updateHtml(html)
+                    viewModel.setDocumentPayload(payload)
                     currentScreen = AppScreen.EDITOR
                 },
                 onDeleteSavedDocument = { doc ->
@@ -360,17 +376,18 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                         } else {
                             template.title
                         }
+                        val newPayload = com.example.model.DocumentPayload(bodyHtml = template.htmlContent)
                         val saved = repository.createOrUpdateDocument(
                             id = null,
                             title = title,
-                            html = template.htmlContent,
+                            payload = newPayload,
                             sourceType = "NEW",
                             wordCount = 0
                         )
                         activeDocId = saved.id
                         activeSourceType = "NEW"
                         viewModel.setDocumentTitle(title)
-                        viewModel.updateHtml(template.htmlContent)
+                        viewModel.setDocumentPayload(newPayload)
                         currentScreen = AppScreen.EDITOR
                     }
                 )
@@ -491,6 +508,9 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.allowFileAccess = true
+                            settings.allowFileAccessFromFileURLs = false
+                            settings.allowUniversalAccessFromFileURLs = false
+                            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                             settings.setSupportZoom(true)
                             settings.builtInZoomControls = true
                             settings.displayZoomControls = false
@@ -498,19 +518,30 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             webViewClient = object : WebViewClient() {
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
-                                    EditorCommands.setHtml(view, currentHtml)
+                                    EditorCommands.setDocumentPayload(
+                                        view,
+                                        documentPayload.bodyHtml,
+                                        documentPayload.headerHtml,
+                                        documentPayload.footerHtml
+                                    )
                                     EditorCommands.setPageConfig(view, pageConfig)
+                                    EditorCommands.setPageBackground(view, pageConfig.pageTheme)
                                 }
                             }
                             addJavascriptInterface(
                                 EditorJsBridge(
                                     onStateUpdated = { viewModel.updateSelectionState(it) },
-                                    onHtmlUpdated = { html ->
-                                        viewModel.updateHtml(html)
+                                    onContentUpdated = { body, header, footer ->
+                                        viewModel.updateHtmlParts(body, header, footer)
+                                        val updatedPayload = documentPayload.copy(
+                                            bodyHtml = body,
+                                            headerHtml = header,
+                                            footerHtml = footer
+                                        )
                                         val saved = repository.createOrUpdateDocument(
                                             id = activeDocId,
                                             title = documentTitle,
-                                            html = html,
+                                            payload = updatedPayload,
                                             sourceType = activeSourceType,
                                             wordCount = selectionState.wordCount
                                         )
@@ -747,7 +778,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                         if (prompt.isNotEmpty() && !isAiGenerating) {
                                             isAiGenerating = true
                                             scope.launch {
-                                                val result = AiAssistantService.generateDocumentContent(prompt)
+                                                val result = AiAssistantService.generateDocumentContent(context, prompt)
                                                 isAiGenerating = false
                                                 result.onSuccess { html ->
                                                     EditorCommands.insertHtml(webViewRef, html)
@@ -798,7 +829,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                 repository.createOrUpdateDocument(
                     id = activeDocId,
                     title = newTitle,
-                    html = currentHtml,
+                    payload = documentPayload,
                     sourceType = activeSourceType,
                     wordCount = selectionState.wordCount
                 )
@@ -816,7 +847,13 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     if (showHyperlinkDialog) {
         HyperlinkDialog(
             onDismiss = { showHyperlinkDialog = false },
-            onInsertLink = { url, text -> EditorCommands.insertHyperlink(webViewRef, url, text) }
+            onInsertLink = { url, text ->
+                if (com.example.security.HtmlSanitizer.isValidSafeUrl(url)) {
+                    EditorCommands.insertHyperlink(webViewRef, url, text)
+                } else {
+                    viewModel.showMessage("يرجى إدخال رابط يبدأ بـ https:// أو http://")
+                }
+            }
         )
     }
 

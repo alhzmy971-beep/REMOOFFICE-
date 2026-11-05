@@ -265,7 +265,10 @@
     const words = text.length === 0 ? 0 : text.split(/\s+/).filter(Boolean).length;
     const chars = text.length;
     const paragraphs = editor.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote').length || (text.length > 0 ? 1 : 0);
-    return { words, chars, paragraphs };
+    const breaks = editor.querySelectorAll('.page-break').length;
+    const heightPages = Math.max(1, Math.ceil(editor.scrollHeight / 1050));
+    const pageCount = Math.max(breaks + 1, heightPages);
+    return { words, chars, paragraphs, pageCount };
   }
 
   function notifySelectionState() {
@@ -307,7 +310,8 @@
         formatPainterActive: Boolean(copiedFormat),
         wordCount: stats.words,
         charCount: stats.chars,
-        paragraphCount: stats.paragraphs
+        paragraphCount: stats.paragraphs,
+        pageCount: stats.pageCount
       };
 
       if (window.AndroidBridge && window.AndroidBridge.onSelectionChanged) {
@@ -318,7 +322,12 @@
 
   function notifyContentChanged() {
     if (window.AndroidBridge && window.AndroidBridge.onContentChanged) {
-      window.AndroidBridge.onContentChanged(editor.innerHTML);
+      const payload = JSON.stringify({
+        bodyHtml: editor.innerHTML,
+        headerHtml: document.getElementById('pageHeader').innerHTML,
+        footerHtml: document.getElementById('pageFooter').innerHTML
+      });
+      window.AndroidBridge.onContentChanged(payload);
     }
   }
 
@@ -345,6 +354,8 @@
     notifySelectionState();
     notifyContentChanged();
   });
+  document.getElementById('pageHeader').addEventListener('input', notifyContentChanged);
+  document.getElementById('pageFooter').addEventListener('input', notifyContentChanged);
 
   function applyCopiedFormat() {
     if (!copiedFormat) return;
@@ -659,6 +670,7 @@
       const sizes = {
         A4: { w: 210, h: 297 },
         Letter: { w: 215.9, h: 279.4 },
+        Legal: { w: 215.9, h: 355.6 },
         A5: { w: 148, h: 210 }
       };
       const s = sizes[size] || sizes.A4;
@@ -724,10 +736,11 @@
       notifyContentChanged();
     },
 
-    setHtml: (html) => {
-      editor.innerHTML = html || '<p><br></p>';
+    setDocumentPayload: (bodyHtml, headerHtml, footerHtml) => {
+      editor.innerHTML = bodyHtml || '<p><br></p>';
+      document.getElementById('pageHeader').innerHTML = headerHtml || '';
+      document.getElementById('pageFooter').innerHTML = footerHtml || '';
       notifySelectionState();
-      notifyContentChanged();
     }
   };
 

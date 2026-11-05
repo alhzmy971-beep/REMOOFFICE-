@@ -1,6 +1,8 @@
 package com.example.viewmodel
 
 import androidx.lifecycle.ViewModel
+import com.example.model.DocumentComment
+import com.example.model.DocumentPayload
 import com.example.model.EditorSelectionState
 import com.example.model.EditorTab
 import com.example.model.PageConfig
@@ -8,24 +10,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.util.UUID
 
 class EditorViewModel : ViewModel() {
     private val _selectionState = MutableStateFlow(EditorSelectionState())
     val selectionState: StateFlow<EditorSelectionState> = _selectionState.asStateFlow()
 
-    private val _currentHtml = MutableStateFlow(
-        "<p>مرحباً بك في <b>DocuCraft</b> — محرر المستندات الاحترافي.</p>"
-    )
-    val currentHtml: StateFlow<String> = _currentHtml.asStateFlow()
+    private val _documentPayload = MutableStateFlow(DocumentPayload())
+    val documentPayload: StateFlow<DocumentPayload> = _documentPayload.asStateFlow()
 
     private val _documentTitle = MutableStateFlow("مستند بدون عنوان")
     val documentTitle: StateFlow<String> = _documentTitle.asStateFlow()
 
     private val _activeTab = MutableStateFlow(EditorTab.HOME)
     val activeTab: StateFlow<EditorTab> = _activeTab.asStateFlow()
-
-    private val _pageConfig = MutableStateFlow(PageConfig())
-    val pageConfig: StateFlow<PageConfig> = _pageConfig.asStateFlow()
 
     private val _isReadMode = MutableStateFlow(false)
     val isReadMode: StateFlow<Boolean> = _isReadMode.asStateFlow()
@@ -37,8 +35,51 @@ class EditorViewModel : ViewModel() {
         _selectionState.value = state
     }
 
-    fun updateHtml(html: String) {
-        _currentHtml.value = html
+    fun setDocumentPayload(payload: DocumentPayload) {
+        _documentPayload.value = payload
+    }
+
+    fun updateHtmlParts(bodyHtml: String, headerHtml: String, footerHtml: String) {
+        _documentPayload.update {
+            it.copy(
+                bodyHtml = bodyHtml,
+                headerHtml = headerHtml,
+                footerHtml = footerHtml
+            )
+        }
+    }
+
+    fun updatePageConfig(transform: (PageConfig) -> PageConfig) {
+        _documentPayload.update {
+            it.copy(pageConfig = transform(it.pageConfig))
+        }
+    }
+
+    fun addComment(quote: String, text: String) {
+        val newComment = DocumentComment(
+            id = UUID.randomUUID().toString(),
+            quote = quote,
+            text = text
+        )
+        _documentPayload.update {
+            it.copy(comments = it.comments + newComment)
+        }
+    }
+
+    fun toggleResolveComment(commentId: String) {
+        _documentPayload.update {
+            it.copy(
+                comments = it.comments.map { c ->
+                    if (c.id == commentId) c.copy(resolved = !c.resolved) else c
+                }
+            )
+        }
+    }
+
+    fun deleteComment(commentId: String) {
+        _documentPayload.update {
+            it.copy(comments = it.comments.filterNot { c -> c.id == commentId })
+        }
     }
 
     fun setDocumentTitle(title: String) {
@@ -47,10 +88,6 @@ class EditorViewModel : ViewModel() {
 
     fun selectTab(tab: EditorTab) {
         _activeTab.value = tab
-    }
-
-    fun updatePageConfig(transform: (PageConfig) -> PageConfig) {
-        _pageConfig.update(transform)
     }
 
     fun setReadMode(enabled: Boolean) {
