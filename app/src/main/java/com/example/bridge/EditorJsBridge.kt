@@ -169,6 +169,11 @@ object EditorCommands {
     fun setReadMode(webView: WebView?, enabled: Boolean) =
         eval(webView, "window.editorApi.setReadMode($enabled)")
 
+    fun insertHtml(webView: WebView?, html: String) {
+        val escaped = JSONObject.quote(html)
+        eval(webView, "window.editorApi.insertHtml($escaped)")
+    }
+
     fun setHtml(webView: WebView?, html: String) {
         val escaped = JSONObject.quote(html)
         eval(webView, "window.editorApi.setHtml($escaped)")

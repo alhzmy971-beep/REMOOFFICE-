@@ -655,6 +655,13 @@
 
     getHtml: () => editor.innerHTML,
 
+    insertHtml: (html) => {
+      focusEditor();
+      document.execCommand('insertHTML', false, html);
+      notifySelectionState();
+      notifyContentChanged();
+    },
+
     setHtml: (html) => {
       editor.innerHTML = html || '<p><br></p>';
       notifySelectionState();
