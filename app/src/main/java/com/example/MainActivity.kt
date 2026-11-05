@@ -174,6 +174,18 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
         }
     }
 
+    fun persistPayload(payload: com.example.model.DocumentPayload) {
+        val docId = activeDocId ?: return
+        val saved = repository.createOrUpdateDocument(
+            id = docId,
+            title = documentTitle,
+            payload = payload,
+            sourceType = activeSourceType,
+            wordCount = selectionState.wordCount
+        )
+        activeDocId = saved.id
+    }
+
     // Save DOCX launcher
     val saveDocxLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
@@ -532,20 +544,13 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 EditorJsBridge(
                                     onStateUpdated = { viewModel.updateSelectionState(it) },
                                     onContentUpdated = { body, header, footer ->
-                                        viewModel.updateHtmlParts(body, header, footer)
-                                        val updatedPayload = documentPayload.copy(
+                                        val updatedPayload = viewModel.documentPayload.value.copy(
                                             bodyHtml = body,
                                             headerHtml = header,
                                             footerHtml = footer
                                         )
-                                        val saved = repository.createOrUpdateDocument(
-                                            id = activeDocId,
-                                            title = documentTitle,
-                                            payload = updatedPayload,
-                                            sourceType = activeSourceType,
-                                            wordCount = selectionState.wordCount
-                                        )
-                                        activeDocId = saved.id
+                                        viewModel.setDocumentPayload(updatedPayload)
+                                        persistPayload(updatedPayload)
                                     }
                                 ),
                                 "AndroidBridge"
@@ -638,25 +643,35 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             onToggleImageRounded = { EditorCommands.toggleImageRounded(webViewRef) },
                             onDeleteSelectedImage = { EditorCommands.deleteSelectedImage(webViewRef) },
                             onSelectMarginPreset = { preset ->
-                                viewModel.updatePageConfig { it.copy(marginPreset = preset) }
-                                EditorCommands.setPageConfig(webViewRef, pageConfig.copy(marginPreset = preset))
+                                val updated = pageConfig.copy(marginPreset = preset)
+                                viewModel.updatePageConfig { updated }
+                                EditorCommands.setPageConfig(webViewRef, updated)
+                                persistPayload(viewModel.documentPayload.value.copy(pageConfig = updated))
                             },
                             onOpenCustomMarginDialog = { showCustomMarginDialog = true },
                             onSelectOrientation = { orient ->
-                                viewModel.updatePageConfig { it.copy(orientation = orient) }
-                                EditorCommands.setPageConfig(webViewRef, pageConfig.copy(orientation = orient))
+                                val updated = pageConfig.copy(orientation = orient)
+                                viewModel.updatePageConfig { updated }
+                                EditorCommands.setPageConfig(webViewRef, updated)
+                                persistPayload(viewModel.documentPayload.value.copy(pageConfig = updated))
                             },
                             onSelectPageSize = { sz ->
-                                viewModel.updatePageConfig { it.copy(size = sz) }
-                                EditorCommands.setPageConfig(webViewRef, pageConfig.copy(size = sz))
+                                val updated = pageConfig.copy(size = sz)
+                                viewModel.updatePageConfig { updated }
+                                EditorCommands.setPageConfig(webViewRef, updated)
+                                persistPayload(viewModel.documentPayload.value.copy(pageConfig = updated))
                             },
                             onSelectColumns = { cols ->
-                                viewModel.updatePageConfig { it.copy(columns = cols) }
-                                EditorCommands.setPageConfig(webViewRef, pageConfig.copy(columns = cols))
+                                val updated = pageConfig.copy(columns = cols)
+                                viewModel.updatePageConfig { updated }
+                                EditorCommands.setPageConfig(webViewRef, updated)
+                                persistPayload(viewModel.documentPayload.value.copy(pageConfig = updated))
                             },
                             onSelectPageTheme = { theme ->
-                                viewModel.updatePageConfig { it.copy(pageTheme = theme) }
+                                val updated = pageConfig.copy(pageTheme = theme)
+                                viewModel.updatePageConfig { updated }
                                 EditorCommands.setPageBackground(webViewRef, theme)
+                                persistPayload(viewModel.documentPayload.value.copy(pageConfig = updated))
                             },
                             onOpenFindReplaceDialog = { showFindReplaceDialog = true },
                             onToggleReadMode = {
@@ -872,6 +887,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                 val updated = pageConfig.copy(marginPreset = MarginPreset.CUSTOM, customMarginMm = mm)
                 viewModel.updatePageConfig { updated }
                 EditorCommands.setPageConfig(webViewRef, updated)
+                persistPayload(viewModel.documentPayload.value.copy(pageConfig = updated))
             }
         )
     }
