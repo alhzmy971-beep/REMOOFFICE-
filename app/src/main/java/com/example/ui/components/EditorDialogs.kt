@@ -46,6 +46,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.io.ByteArrayOutputStream
 
 @Composable
@@ -489,3 +490,417 @@ fun TemplatesDialog(
         }
     )
 }
+
+@Composable
+fun BookmarkDialog(
+    bookmarks: List<com.example.model.DocumentBookmark>,
+    onDismiss: () -> Unit,
+    onAddBookmark: (name: String) -> Unit,
+    onSelectBookmark: (id: String) -> Unit,
+    onDeleteBookmark: (id: String) -> Unit,
+    onInsertInternalLink: (bookmarkId: String, text: String) -> Unit
+) {
+    var nameInput by remember { mutableStateOf("") }
+    var linkLabelInput by remember { mutableStateOf("") }
+    var selectedBmIdForLink by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("العلامات المرجعية (Bookmarks)") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = nameInput,
+                        onValueChange = { nameInput = it },
+                        label = { Text("اسم العلامة المرجعية") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(onClick = {
+                        if (nameInput.isNotBlank()) {
+                            onAddBookmark(nameInput.trim())
+                            nameInput = ""
+                        }
+                    }) {
+                        Text("إضافة")
+                    }
+                }
+
+                if (bookmarks.isNotEmpty()) {
+                    Text("العلامات المحفوظة:", style = MaterialTheme.typography.titleSmall)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        bookmarks.forEach { bm ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🔖 ${bm.name}",
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { onSelectBookmark(bm.id) }
+                                )
+                                TextButton(onClick = { selectedBmIdForLink = bm.id }) {
+                                    Text("رابط", fontSize = 11.sp)
+                                }
+                                TextButton(onClick = { onDeleteBookmark(bm.id) }) {
+                                    Text("حذف", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (selectedBmIdForLink != null) {
+                    OutlinedTextField(
+                        value = linkLabelInput,
+                        onValueChange = { linkLabelInput = it },
+                        label = { Text("نص الرابط الداخلي للعلامة") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(onClick = {
+                        selectedBmIdForLink?.let { id ->
+                            onInsertInternalLink(id, linkLabelInput.ifBlank { "انتقال إلى العلامة" })
+                        }
+                        selectedBmIdForLink = null
+                        linkLabelInput = ""
+                        onDismiss()
+                    }) {
+                        Text("إدراج الرابط الداخلي")
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إغلاق") }
+        }
+    )
+}
+
+@Composable
+fun NoteDialog(
+    onDismiss: () -> Unit,
+    onAddNote: (type: String, text: String) -> Unit
+) {
+    var noteText by remember { mutableStateOf("") }
+    var isEndnote by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (isEndnote) "إدراج حاشية ختامية (Endnote)" else "إدراج حاشية سفلية (Footnote)") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.FilterChip(
+                        selected = !isEndnote,
+                        onClick = { isEndnote = false },
+                        label = { Text("حاشية سفلية") }
+                    )
+                    androidx.compose.material3.FilterChip(
+                        selected = isEndnote,
+                        onClick = { isEndnote = true },
+                        label = { Text("حاشية ختامية") }
+                    )
+                }
+                OutlinedTextField(
+                    value = noteText,
+                    onValueChange = { noteText = it },
+                    label = { Text("نص الحاشية") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                if (noteText.isNotBlank()) {
+                    onAddNote(if (isEndnote) "ENDNOTE" else "FOOTNOTE", noteText.trim())
+                }
+                onDismiss()
+            }) {
+                Text("إدراج")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إلغاء") }
+        }
+    )
+}
+
+@Composable
+fun DocumentPropertiesDialog(
+    properties: com.example.model.DocumentProperties,
+    wordCount: Int,
+    charCount: Int,
+    paragraphCount: Int,
+    pageCount: Int,
+    sourceType: String,
+    onDismiss: () -> Unit,
+    onSaveProperties: (com.example.model.DocumentProperties) -> Unit
+) {
+    var author by remember { mutableStateOf(properties.author) }
+    var title by remember { mutableStateOf(properties.title) }
+    var subject by remember { mutableStateOf(properties.subject) }
+    var keywords by remember { mutableStateOf(properties.keywords) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("خصائص المستند (Properties)") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("عنوان المستند") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = author,
+                    onValueChange = { author = it },
+                    label = { Text("المؤلف") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = subject,
+                    onValueChange = { subject = it },
+                    label = { Text("الموضوع") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = keywords,
+                    onValueChange = { keywords = it },
+                    label = { Text("الكلمات المفتاحية") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("إحصائيات الملف المحلية:", style = MaterialTheme.typography.titleSmall)
+                Text("النوع: $sourceType | المراجعة: #${properties.revision}", style = MaterialTheme.typography.bodySmall)
+                Text("الصفحات: $pageCount | الكلمات: $wordCount | الحروف: $charCount | الفقرات: $paragraphCount", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                onSaveProperties(
+                    properties.copy(
+                        author = author.trim(),
+                        title = title.trim(),
+                        subject = subject.trim(),
+                        keywords = keywords.trim()
+                    )
+                )
+                onDismiss()
+            }) {
+                Text("حفظ الخصائص")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إغلاق") }
+        }
+    )
+}
+
+@Composable
+fun StylesDialog(
+    styles: List<com.example.model.DocumentStyle>,
+    onDismiss: () -> Unit,
+    onApplyStyle: (com.example.model.DocumentStyle) -> Unit,
+    onCreateStyle: (com.example.model.DocumentStyle) -> Unit,
+    onDeleteStyle: (String) -> Unit
+) {
+    var styleNameInput by remember { mutableStateOf("") }
+    var fontInput by remember { mutableStateOf("Arial") }
+    var sizeInput by remember { mutableIntStateOf(16) }
+    var isBoldInput by remember { mutableStateOf(false) }
+    var isItalicInput by remember { mutableStateOf(false) }
+
+    val presetStyles = remember {
+        listOf(
+            com.example.model.DocumentStyle("عادي (Normal)", "p", "Arial", 14, "#1E293B"),
+            com.example.model.DocumentStyle("العنوان الرئيسي (Title)", "h1", "Cairo", 24, "#0F172A", isBold = true),
+            com.example.model.DocumentStyle("العنوان الفرعي (Subtitle)", "h2", "Cairo", 18, "#1E293B", isBold = true),
+            com.example.model.DocumentStyle("عنوان 1 (Heading 1)", "h1", "Tajawal", 22, "#1A56DB", isBold = true),
+            com.example.model.DocumentStyle("عنوان 2 (Heading 2)", "h2", "Tajawal", 18, "#059669", isBold = true),
+            com.example.model.DocumentStyle("عنوان 3 (Heading 3)", "h3", "Tajawal", 15, "#D97706", isBold = true),
+            com.example.model.DocumentStyle("اقتباس (Quote)", "blockquote", "Amiri", 14, "#475569", isItalic = true)
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("أنماط المستند (Styles)") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("الأنماط الجاهزة والمخصصة:", style = MaterialTheme.typography.titleSmall)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    (presetStyles + styles).distinctBy { it.name }.forEach { st ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = st.name,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        onApplyStyle(st)
+                                        onDismiss()
+                                    }
+                            )
+                            Button(onClick = {
+                                onApplyStyle(st)
+                                onDismiss()
+                            }) {
+                                Text("تطبيق", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("إنشاء نمط مخصص جديد:", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = styleNameInput,
+                    onValueChange = { styleNameInput = it },
+                    label = { Text("اسم النمط الجديد") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        if (styleNameInput.isNotBlank()) {
+                            val newSt = com.example.model.DocumentStyle(
+                                name = styleNameInput.trim(),
+                                htmlTag = "p",
+                                fontFamily = fontInput,
+                                fontSizePt = sizeInput,
+                                isBold = isBoldInput,
+                                isItalic = isItalicInput
+                            )
+                            onCreateStyle(newSt)
+                            onApplyStyle(newSt)
+                            styleNameInput = ""
+                            onDismiss()
+                        }
+                    }) {
+                        Text("حفظ وتطبيق النمط")
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إغلاق") }
+        }
+    )
+}
+
+@Composable
+fun TrackedChangesPanelDialog(
+    changes: List<com.example.model.TrackedChange>,
+    isEnabled: Boolean,
+    onToggleEnabled: () -> Unit,
+    onDismiss: () -> Unit,
+    onAccept: (id: String) -> Unit,
+    onReject: (id: String) -> Unit,
+    onAcceptAll: () -> Unit,
+    onRejectAll: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("تتبع التغييرات (Track Changes)")
+                androidx.compose.material3.Switch(
+                    checked = isEnabled,
+                    onCheckedChange = { onToggleEnabled() }
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = if (isEnabled) "حالة التتبع: مفعّل (تسجيل التعديلات)" else "حالة التتبع: متوقف",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                )
+
+                if (changes.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onAcceptAll) { Text("قبول الكل") }
+                        OutlinedButton(onClick = onRejectAll) { Text("رفض الكل") }
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        changes.forEach { tc ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        when (tc.status) {
+                                            "ACCEPTED" -> Color(0xFFDCFCE7)
+                                            "REJECTED" -> Color(0xFFFEE2E2)
+                                            else -> MaterialTheme.colorScheme.surfaceVariant
+                                        }
+                                    )
+                                    .padding(8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "${tc.type}: ${tc.newText.ifEmpty { tc.oldText }}",
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Text(
+                                        text = "المؤلف: ${tc.author} • الحالة: ${tc.status}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                                if (tc.status == "PENDING") {
+                                    Row {
+                                        TextButton(onClick = { onAccept(tc.id) }) { Text("قبول", fontSize = 11.sp) }
+                                        TextButton(onClick = { onReject(tc.id) }) { Text("رفض", fontSize = 11.sp, color = MaterialTheme.colorScheme.error) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text("لا توجد تعديلات مسجلة بعد", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إغلاق") }
+        }
+    )
+}
+

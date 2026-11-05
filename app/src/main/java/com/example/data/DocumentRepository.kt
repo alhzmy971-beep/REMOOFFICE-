@@ -212,7 +212,8 @@ class DocumentRepository(context: Context) {
             changesArr.put(JSONObject().apply {
                 put("id", change.id)
                 put("type", change.type)
-                put("text", change.text)
+                put("oldText", change.oldText)
+                put("newText", change.newText)
                 put("author", change.author)
                 put("timestamp", change.timestamp)
                 put("status", change.status)
@@ -243,6 +244,7 @@ class DocumentRepository(context: Context) {
                 put("id", note.id)
                 put("type", note.type)
                 put("text", note.text)
+                put("number", note.number)
             })
         }
         val props = payload.properties
@@ -250,6 +252,7 @@ class DocumentRepository(context: Context) {
             put("author", props.author)
             put("title", props.title)
             put("subject", props.subject)
+            put("keywords", props.keywords)
             put("creationDate", props.creationDate)
             put("modificationDate", props.modificationDate)
             put("revision", props.revision)
@@ -311,7 +314,8 @@ class DocumentRepository(context: Context) {
                     trackedChanges.add(TrackedChange(
                         id = item.optString("id", UUID.randomUUID().toString()),
                         type = item.optString("type", "INSERT"),
-                        text = item.optString("text", ""),
+                        oldText = item.optString("oldText", ""),
+                        newText = item.optString("newText", item.optString("text", "")),
                         author = item.optString("author", "المستخدم"),
                         timestamp = item.optLong("timestamp", System.currentTimeMillis()),
                         status = item.optString("status", "PENDING")

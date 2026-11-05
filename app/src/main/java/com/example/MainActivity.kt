@@ -82,18 +82,23 @@ import com.example.bridge.PdfExporter
 import com.example.bridge.PdfImporter
 import com.example.data.DocumentRepository
 import com.example.model.MarginPreset
+import com.example.ui.components.BookmarkDialog
 import com.example.ui.components.BottomTabBar
 import com.example.ui.components.CommentDialog
 import com.example.ui.components.CustomMarginDialog
+import com.example.ui.components.DocumentPropertiesDialog
 import com.example.ui.components.DynamicToolsPanel
 import com.example.ui.components.FindReplaceDialog
 import com.example.ui.components.HyperlinkDialog
+import com.example.ui.components.NoteDialog
 import com.example.ui.components.RenameDocumentDialog
 import com.example.ui.components.SignaturePadDialog
+import com.example.ui.components.StylesDialog
 import com.example.ui.components.TableGridDialog
 import com.example.ui.components.TemplatesDialog
 import com.example.ui.components.TextBoxDialog
 import com.example.ui.components.TopActionBar
+import com.example.ui.components.TrackedChangesPanelDialog
 import com.example.ui.screens.HomeHubScreen
 import com.example.ui.screens.SplashScreen
 import com.example.ui.theme.DocuCraftTheme
@@ -149,6 +154,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     val activeTab by viewModel.activeTab.collectAsStateWithLifecycle()
     val pageConfig = documentPayload.pageConfig
     val isReadMode by viewModel.isReadMode.collectAsStateWithLifecycle()
+    val isTrackChangesEnabled by viewModel.isTrackChangesEnabled.collectAsStateWithLifecycle()
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
 
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
@@ -161,6 +167,11 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     var showCustomMarginDialog by remember { mutableStateOf(false) }
     var showFindReplaceDialog by remember { mutableStateOf(false) }
     var showAiKeyDialog by remember { mutableStateOf(false) }
+    var showBookmarkDialog by remember { mutableStateOf(false) }
+    var showNoteDialog by remember { mutableStateOf(false) }
+    var showDocPropertiesDialog by remember { mutableStateOf(false) }
+    var showStylesDialog by remember { mutableStateOf(false) }
+    var showTrackedChangesPanel by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentScreen) {
         if (currentScreen == AppScreen.HOME) {
@@ -639,7 +650,13 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                     )
                                 )
                             },
-                            onRenameDoc = { showRenameDialog = true }
+                            onRenameDoc = { showRenameDialog = true },
+                            onOpenBookmarkDialog = { showBookmarkDialog = true },
+                            onOpenNoteDialog = { showNoteDialog = true },
+                            onInsertTableOfContents = { EditorCommands.insertTableOfContents(webViewRef) },
+                            onOpenTrackedChangesPanel = { showTrackedChangesPanel = true },
+                            onOpenStylesDialog = { showStylesDialog = true },
+                            onOpenDocPropertiesDialog = { showDocPropertiesDialog = true }
                         )
 
                         BottomTabBar(
@@ -1004,6 +1021,102 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                         Text("إغلاق")
                     }
                 }
+            }
+        )
+    }
+
+    if (showBookmarkDialog) {
+        BookmarkDialog(
+            bookmarks = documentPayload.bookmarks,
+            onDismiss = { showBookmarkDialog = false },
+            onAddBookmark = { name ->
+                val bm = viewModel.addBookmark(name)
+                bm?.let { EditorCommands.addBookmark(webViewRef, it) }
+                viewModel.showMessage("تمت إضافة العلامة المرجعية")
+            },
+            onSelectBookmark = { id ->
+                EditorCommands.goToBookmark(webViewRef, id)
+            },
+            onDeleteBookmark = { id ->
+                EditorCommands.deleteBookmark(webViewRef, id)
+                viewModel.deleteBookmark(id)
+            },
+            onInsertInternalLink = { id, text ->
+                EditorCommands.insertInternalLink(webViewRef, id, text)
+            }
+        )
+    }
+
+    if (showNoteDialog) {
+        NoteDialog(
+            onDismiss = { showNoteDialog = false },
+            onAddNote = { type, text ->
+                val note = viewModel.addNote(type, text)
+                note?.let {
+                    EditorCommands.insertFootnote(webViewRef, it)
+                    viewModel.showMessage("تمت إضافة الحاشية")
+                }
+            }
+        )
+    }
+
+    if (showDocPropertiesDialog) {
+        DocumentPropertiesDialog(
+            properties = documentPayload.properties,
+            wordCount = selectionState.wordCount,
+            charCount = selectionState.charCount,
+            paragraphCount = selectionState.paragraphCount,
+            pageCount = selectionState.pageCount,
+            sourceType = activeSourceType,
+            onDismiss = { showDocPropertiesDialog = false },
+            onSaveProperties = { newProps ->
+                viewModel.updateDocumentProperties(newProps)
+                persistPayload(viewModel.documentPayload.value.copy(properties = newProps))
+                viewModel.showMessage("تم حفظ خصائص المستند")
+            }
+        )
+    }
+
+    if (showStylesDialog) {
+        StylesDialog(
+            styles = documentPayload.styles,
+            onDismiss = { showStylesDialog = false },
+            onApplyStyle = { style ->
+                EditorCommands.applyStyle(webViewRef, style)
+            },
+            onCreateStyle = { newStyle ->
+                viewModel.saveCustomStyle(newStyle)
+            },
+            onDeleteStyle = { name ->
+                viewModel.deleteCustomStyle(name)
+            }
+        )
+    }
+
+    if (showTrackedChangesPanel) {
+        TrackedChangesPanelDialog(
+            changes = documentPayload.trackedChanges,
+            isEnabled = isTrackChangesEnabled,
+            onToggleEnabled = {
+                viewModel.toggleTrackChanges()
+                EditorCommands.setTrackChangesEnabled(webViewRef, !isTrackChangesEnabled)
+            },
+            onDismiss = { showTrackedChangesPanel = false },
+            onAccept = { id ->
+                viewModel.acceptTrackedChange(id)
+                EditorCommands.acceptTrackedChange(webViewRef, id)
+            },
+            onReject = { id ->
+                viewModel.rejectTrackedChange(id)
+                EditorCommands.rejectTrackedChange(webViewRef, id)
+            },
+            onAcceptAll = {
+                viewModel.acceptAllTrackedChanges()
+                EditorCommands.acceptAllTrackedChanges(webViewRef)
+            },
+            onRejectAll = {
+                viewModel.rejectAllTrackedChanges()
+                EditorCommands.rejectAllTrackedChanges(webViewRef)
             }
         )
     }

@@ -75,7 +75,7 @@ class EditorViewModel : ViewModel() {
         val change = TrackedChange(
             id = UUID.randomUUID().toString(),
             type = type,
-            text = text,
+            newText = text,
             author = _documentPayload.value.properties.author
         )
         _documentPayload.update {
@@ -211,17 +211,17 @@ class EditorViewModel : ViewModel() {
     }
 
     // --- Footnotes & Endnotes ---
-    fun addNote(type: String, text: String): Int {
+    fun addNote(type: String, text: String): DocumentNote? {
         val clean = text.trim()
-        if (clean.isEmpty()) return -1
-        val note = DocumentNote(id = UUID.randomUUID().toString(), type = type, text = clean)
-        var newNumber = 1
+        if (clean.isEmpty()) return null
+        var createdNote: DocumentNote? = null
         _documentPayload.update {
-            val updated = it.notes + note
-            newNumber = updated.size
-            it.copy(notes = updated)
+            val num = it.notes.count { n -> n.type == type } + 1
+            val note = DocumentNote(id = UUID.randomUUID().toString(), type = type, text = clean, number = num)
+            createdNote = note
+            it.copy(notes = it.notes + note)
         }
-        return newNumber
+        return createdNote
     }
 
     fun deleteNote(id: String) {

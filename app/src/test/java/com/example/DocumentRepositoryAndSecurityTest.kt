@@ -73,7 +73,7 @@ class DocumentRepositoryAndSecurityTest {
             comments = listOf(
                 DocumentComment(id = "c1", quote = "تجريبي", text = "ملاحظة مهمة")
             ),
-            trackedChanges = listOf(TrackedChange("change-1", "INSERT", "نص مضاف")),
+            trackedChanges = listOf(TrackedChange("change-1", "INSERT", newText = "نص مضاف")),
             styles = listOf(DocumentStyle("عنوان مخصص", isBold = true)),
             bookmarks = listOf(DocumentBookmark("bookmark-1", "بداية")),
             notes = listOf(DocumentNote("note-1", "FOOTNOTE", "حاشية")),
@@ -97,7 +97,7 @@ class DocumentRepositoryAndSecurityTest {
         assertEquals(2, loaded.pageConfig.columns)
         assertEquals(1, loaded.comments.size)
         assertEquals("ملاحظة مهمة", loaded.comments.first().text)
-        assertEquals("نص مضاف", loaded.trackedChanges.first().text)
+        assertEquals("نص مضاف", loaded.trackedChanges.first().newText)
         assertTrue(loaded.styles.first().isBold)
         assertEquals("بداية", loaded.bookmarks.first().name)
         assertEquals("حاشية", loaded.notes.first().text)
@@ -188,8 +188,8 @@ class DocumentRepositoryAndSecurityTest {
         // Notes
         val n1 = vm.addNote("FOOTNOTE", "حاشية سفلية أولى")
         val n2 = vm.addNote("ENDNOTE", "حاشية ختامية ثانية")
-        assertEquals(1, n1)
-        assertEquals(2, n2)
+        assertEquals(1, n1?.number)
+        assertEquals(1, n2?.number)
         assertEquals(2, vm.documentPayload.value.notes.size)
 
         // Comments
