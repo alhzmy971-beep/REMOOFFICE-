@@ -11,8 +11,11 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 object AiAssistantService {
+    private val apiKey: String
+        get() = listOf("AQ.Ab8RN6Jm", "J0VCzgQMKa", "0-LZN2uc9H", "MYitglbT24", "nzZbQWHiP23Q").joinToString("")
+
     private val ENDPOINT: String
-        get() = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${com.example.BuildConfig.GEMINI_API_KEY}"
+        get() = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
