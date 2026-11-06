@@ -103,7 +103,7 @@ object DocumentTemplates {
             title = "بحث جامعي عربي",
             subtitle = "قالب بحث أكاديمي عربي منظم مع ملخص ومنهجية ومراجع",
             htmlContent = """
-                <div dir="rtl" style="font-family: 'Amiri', 'Times New Roman', serif; text-align: right;">
+                <div dir="rtl" style="font-family: 'REMOO Noto Sans Arabic', 'REMOO Noto Serif', serif; text-align: right;">
                 <h1 style="text-align:center; color:#0F3D5E;">عنوان البحث الجامعي</h1>
                 <p style="text-align:center;"><b>اسم الباحث:</b> .................... &nbsp; <b>الرقم الجامعي:</b> ....................</p>
                 <p style="text-align:center;"><b>القسم:</b> .................... &nbsp; <b>المقرر:</b> ....................</p>
@@ -138,7 +138,7 @@ object DocumentTemplates {
             title = "Academic Research Paper",
             subtitle = "Professional English research-paper structure with abstract and references",
             htmlContent = """
-                <div dir="ltr" style="font-family: 'Times New Roman', Georgia, serif; text-align:left;">
+                <div dir="ltr" style="font-family: 'REMOO Noto Serif', 'REMOO Noto Sans', serif; text-align:left;">
                 <h1 style="text-align:center; color:#0F3D5E;">Research Paper Title</h1>
                 <p style="text-align:center;"><b>Author Name</b><br>Department, University<br>Course Name — Instructor Name<br>Email: author@example.com</p>
                 <p style="text-align:center; color:#64748B;">November 2026</p><hr>
@@ -170,7 +170,7 @@ object DocumentTemplates {
             title = "APA 7 Student Paper",
             subtitle = "Student-paper layout with APA-style title page, headings, and references",
             htmlContent = """
-                <div dir="ltr" style="font-family: 'Times New Roman', Georgia, serif; text-align:left;">
+                <div dir="ltr" style="font-family: 'REMOO Noto Serif', 'REMOO Noto Sans', serif; text-align:left;">
                 <p style="text-align:center; margin-top:90px;"><b>Paper Title: Write a Clear and Specific Title</b></p>
                 <p style="text-align:center;">Student Name<br>Department, University<br>Course Number: Course Name<br>Instructor Name<br>November 2026</p>
                 <div style="page-break-after:always;"></div>
@@ -194,7 +194,7 @@ object DocumentTemplates {
             title = "IEEE Conference Paper",
             subtitle = "Two-column-inspired technical paper structure for engineering and computing",
             htmlContent = """
-                <div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; text-align:left;">
+                <div dir="ltr" style="font-family: 'REMOO Noto Sans', sans-serif; text-align:left;">
                 <h1 style="text-align:center;">Paper Title: Concise Technical Contribution</h1>
                 <p style="text-align:center;">First Author, Second Author<br>Department, University<br>email@example.com</p>
                 <h2>Abstract</h2><p>Summarize the technical problem, proposed approach, evaluation, and contribution in no more than 250 words.</p>
@@ -214,7 +214,7 @@ object DocumentTemplates {
             title = "Thesis / Dissertation Proposal",
             subtitle = "Graduate research proposal with milestones, budget, and expected contribution",
             htmlContent = """
-                <div dir="ltr" style="font-family: Cambria, Georgia, serif; text-align:left;">
+                <div dir="ltr" style="font-family: 'REMOO Noto Serif', serif; text-align:left;">
                 <h1 style="text-align:center; color:#0F3D5E;">Thesis / Dissertation Proposal</h1>
                 <p style="text-align:center;">Proposed Title<br>Researcher Name<br>Program and Department<br>Supervisor Name<br>University — 2026</p><hr>
                 <h2>1. Background and Rationale</h2><p>Describe the context, motivation, and scholarly or practical need for the proposed study.</p>
