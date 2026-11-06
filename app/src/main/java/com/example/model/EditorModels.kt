@@ -114,7 +114,10 @@ data class DocumentStyle(
     val isUnderline: Boolean = false,
     val alignment: String = "left",
     val dir: String = "rtl",
-    val lineHeight: String = "1.5"
+    val lineHeight: String = "1.5",
+    val spaceBeforePt: Int = 0,
+    val spaceAfterPt: Int = 0,
+    val indentMm: Int = 0
 )
 
 data class DocumentBookmark(

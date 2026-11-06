@@ -149,6 +149,8 @@ fun DynamicToolsPanel(
     onOpenBookmarkDialog: () -> Unit = {},
     onOpenNoteDialog: () -> Unit = {},
     onInsertTableOfContents: () -> Unit = {},
+    onUpdateTableOfContents: () -> Unit = {},
+    onRemoveTableOfContents: () -> Unit = {},
     // Layout actions
     onSelectMarginPreset: (MarginPreset) -> Unit,
     onOpenCustomMarginDialog: () -> Unit,
@@ -166,7 +168,8 @@ fun DynamicToolsPanel(
     onRenameDoc: () -> Unit = {},
     onOpenTrackedChangesPanel: () -> Unit = {},
     onOpenStylesDialog: () -> Unit = {},
-    onOpenDocPropertiesDialog: () -> Unit = {}
+    onOpenDocPropertiesDialog: () -> Unit = {},
+    onOpenCommentsPanel: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -230,7 +233,9 @@ fun DynamicToolsPanel(
                     onDeleteSelectedImage = onDeleteSelectedImage,
                     onOpenBookmarkDialog = onOpenBookmarkDialog,
                     onOpenNoteDialog = onOpenNoteDialog,
-                    onInsertTableOfContents = onInsertTableOfContents
+                    onInsertTableOfContents = onInsertTableOfContents,
+                    onUpdateTableOfContents = onUpdateTableOfContents,
+                    onRemoveTableOfContents = onRemoveTableOfContents
                 )
                 EditorTab.LAYOUT -> LayoutToolsContent(
                     pageConfig = pageConfig,
@@ -252,6 +257,7 @@ fun DynamicToolsPanel(
                     state = selectionState,
                     onOpenFindReplaceDialog = onOpenFindReplaceDialog,
                     onOpenCommentDialog = onOpenCommentDialog,
+                    onOpenCommentsPanel = onOpenCommentsPanel,
                     onOpenTrackedChangesPanel = onOpenTrackedChangesPanel,
                     onOpenStylesDialog = onOpenStylesDialog,
                     onOpenDocPropertiesDialog = onOpenDocPropertiesDialog
@@ -564,10 +570,13 @@ private fun InsertToolsContent(
     onDeleteSelectedImage: () -> Unit,
     onOpenBookmarkDialog: () -> Unit,
     onOpenNoteDialog: () -> Unit,
-    onInsertTableOfContents: () -> Unit
+    onInsertTableOfContents: () -> Unit,
+    onUpdateTableOfContents: () -> Unit,
+    onRemoveTableOfContents: () -> Unit
 ) {
     var shapesMenuExpanded by remember { mutableStateOf(false) }
     var stampsMenuExpanded by remember { mutableStateOf(false) }
+    var tocMenuExpanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -605,7 +614,19 @@ private fun InsertToolsContent(
             ActionChipButton(Icons.Default.Link, "رابط", onOpenHyperlinkDialog, "insert_link")
             ActionChipButton(Icons.Default.Bookmark, "علامة مرجعية", onOpenBookmarkDialog, "insert_bookmark")
             ActionChipButton(Icons.Default.StickyNote2, "حاشية / ملاحظة", onOpenNoteDialog, "insert_note")
-            ActionChipButton(Icons.AutoMirrored.Filled.ListAlt, "جدول المحتويات", onInsertTableOfContents, "insert_toc")
+
+            Box {
+                ActionChipButton(Icons.AutoMirrored.Filled.ListAlt, "جدول المحتويات", { tocMenuExpanded = true }, "insert_toc")
+                DropdownMenu(
+                    expanded = tocMenuExpanded,
+                    onDismissRequest = { tocMenuExpanded = false }
+                ) {
+                    DropdownMenuItem(text = { Text("إدراج / بناء الجدول") }, onClick = { onInsertTableOfContents(); tocMenuExpanded = false })
+                    DropdownMenuItem(text = { Text("تحديث جدول المحتويات") }, onClick = { onUpdateTableOfContents(); tocMenuExpanded = false })
+                    DropdownMenuItem(text = { Text("حذف جدول المحتويات") }, onClick = { onRemoveTableOfContents(); tocMenuExpanded = false })
+                }
+            }
+
             ActionChipButton(Icons.Default.InsertPageBreak, "فاصل صفحة", onInsertPageBreak, "insert_page_break")
             ActionChipButton(Icons.Default.Numbers, "رقم الصفحة", onInsertPageNumber, "insert_page_number")
             ActionChipButton(Icons.Default.CalendarToday, "التاريخ", onInsertDateTime, "insert_date")
@@ -789,6 +810,7 @@ private fun ReviewToolsContent(
     state: EditorSelectionState,
     onOpenFindReplaceDialog: () -> Unit,
     onOpenCommentDialog: () -> Unit,
+    onOpenCommentsPanel: () -> Unit,
     onOpenTrackedChangesPanel: () -> Unit,
     onOpenStylesDialog: () -> Unit,
     onOpenDocPropertiesDialog: () -> Unit
@@ -803,6 +825,7 @@ private fun ReviewToolsContent(
     ) {
         ActionChipButton(Icons.Default.FindReplace, "بحث واستبدال", onOpenFindReplaceDialog, "find_replace_button")
         ActionChipButton(Icons.Default.TextFields, "إضافة تعليق", onOpenCommentDialog, "review_add_comment")
+        ActionChipButton(Icons.Default.TextFields, "لوحة التعليقات", onOpenCommentsPanel, "review_comments_panel")
         ActionChipButton(Icons.Default.TrackChanges, "تتبع التغييرات", onOpenTrackedChangesPanel, "review_tracked_changes")
         ActionChipButton(Icons.Default.Style, "أنماط المستند", onOpenStylesDialog, "review_styles")
         ActionChipButton(Icons.Default.Info, "خصائص المستند", onOpenDocPropertiesDialog, "review_doc_properties")

@@ -193,18 +193,20 @@ class DocumentRepositoryAndSecurityTest {
         assertEquals(2, vm.documentPayload.value.notes.size)
 
         // Comments
-        vm.addComment("نص محدد", "تعليق أول")
+        vm.addComment(id = "c1", quote = "نص محدد", text = "تعليق أول", anchor = com.example.model.DocumentAnchor("el1", 0, 5, "نص محدد"))
         val cId = vm.documentPayload.value.comments.first().id
         vm.replyToComment(cId, "رد على التعليق")
-        assertTrue(vm.documentPayload.value.comments.first().text.contains("رد على التعليق"))
+        assertEquals(1, vm.documentPayload.value.comments.first().replies.size)
+        assertEquals("رد على التعليق", vm.documentPayload.value.comments.first().replies.first().text)
         vm.toggleResolveComment(cId)
         assertTrue(vm.documentPayload.value.comments.first().resolved)
 
         // Properties
         vm.updateDocumentProperties(
-            com.example.model.DocumentProperties(author = "محمد الحزمي", title = "تقرير سنوي", subject = "تقنية")
+            com.example.model.DocumentProperties(author = "محمد الحزمي", title = "تقرير سنوي", subject = "تقنية", keywords = "مستند,اختبار")
         )
         assertEquals("محمد الحزمي", vm.documentPayload.value.properties.author)
+        assertEquals("مستند,اختبار", vm.documentPayload.value.properties.keywords)
         assertEquals(2, vm.documentPayload.value.properties.revision)
 
         // TOC
@@ -213,5 +215,81 @@ class DocumentRepositoryAndSecurityTest {
         assertTrue(toc.contains("جدول المحتويات"))
         assertTrue(toc.contains("الفصل الأول"))
         assertTrue(toc.contains("المبحث الأول"))
+    }
+
+    @Test
+    fun documentRepository_savesAndRestoresAnchorsAndRepliesAndExtendedStyles() {
+        val context = RuntimeEnvironment.getApplication()
+        val repo = DocumentRepository(context)
+
+        val anchor = com.example.model.DocumentAnchor("el_100", 2, 10, "النص المقتبس")
+        val payload = DocumentPayload(
+            bodyHtml = "<p id=\"el_100\">النص المقتبس</p>",
+            comments = listOf(
+                DocumentComment(
+                    id = "c1",
+                    quote = "النص المقتبس",
+                    text = "تعليق رئيسي",
+                    anchor = anchor,
+                    replies = listOf(
+                        com.example.model.CommentReply("r1", author = "محرر", text = "رد محدد")
+                    )
+                )
+            ),
+            trackedChanges = listOf(
+                TrackedChange(
+                    id = "tc1",
+                    type = "INSERT",
+                    elementId = "el_100",
+                    anchor = anchor,
+                    oldText = "قديم",
+                    newText = "جديد",
+                    oldHtml = "<del>قديم</del>",
+                    newHtml = "<ins>جديد</ins>",
+                    status = "PENDING",
+                    createdByUser = true
+                )
+            ),
+            styles = listOf(
+                DocumentStyle(
+                    name = "نمط مميز",
+                    htmlTag = "h2",
+                    fontFamily = "Cairo",
+                    fontSizePt = 18,
+                    colorHex = "#1A56DB",
+                    isBold = true,
+                    isItalic = false,
+                    isUnderline = true,
+                    alignment = "right",
+                    dir = "rtl",
+                    lineHeight = "1.8",
+                    spaceBeforePt = 12,
+                    spaceAfterPt = 8,
+                    indentMm = 5
+                )
+            ),
+            bookmarks = listOf(
+                DocumentBookmark("bm1", "عنوان البداية", anchor = anchor)
+            ),
+            notes = listOf(
+                DocumentNote("n1", "FOOTNOTE", "ملاحظة سفلية جديدة", number = 1, anchor = anchor)
+            )
+        )
+
+        val saved = repo.createOrUpdateDocument(null, "مستند هيكلي", payload, "NEW", 10)
+        val loaded = repo.loadDocumentPayload(saved.id)
+
+        assertEquals("el_100", loaded.comments.first().anchor?.elementId)
+        assertEquals("رد محدد", loaded.comments.first().replies.first().text)
+        assertEquals("tc1", loaded.trackedChanges.first().id)
+        assertEquals("el_100", loaded.trackedChanges.first().anchor?.elementId)
+        assertEquals("<ins>جديد</ins>", loaded.trackedChanges.first().newHtml)
+        assertTrue(loaded.styles.first().isUnderline)
+        assertEquals("1.8", loaded.styles.first().lineHeight)
+        assertEquals(12, loaded.styles.first().spaceBeforePt)
+        assertEquals("bm1", loaded.bookmarks.first().id)
+        assertEquals("n1", loaded.notes.first().id)
+
+        repo.deleteDocument(saved.id)
     }
 }

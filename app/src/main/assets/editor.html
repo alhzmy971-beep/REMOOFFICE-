@@ -246,6 +246,18 @@
     vertical-align: middle;
   }
 
+  .remoffice-footnotes, .remoffice-endnotes {
+    margin-top: 24px;
+    border-top: 1px dashed #CBD5E1;
+    padding-top: 12px;
+    font-size: 10pt;
+    color: #475569;
+  }
+
+  .remoffice-note-item {
+    margin: 4px 0;
+  }
+
   .remoffice-toc-box {
     border: 1px solid #CBD5E1;
     background: #F8FAFC;
@@ -272,6 +284,12 @@
       <p>مرحباً بك في <b>REMOOFFICE محرر</b> — محرر المستندات الاحترافي المتكامل.</p>
       <p>ابدأ الكتابة هنا أو استخدم شريط الأدوات بالأسفل لتنسيق النصوص، إدراج الجداول، الصور، وتخطيط الصفحة.</p>
     </div>
+    <section id="remofficeFootnotes" class="remoffice-footnotes" style="display:none;">
+      <b>الحواشي السفلية / Footnotes:</b>
+    </section>
+    <section id="remofficeEndnotes" class="remoffice-endnotes" style="display:none;">
+      <b>الحواشي الختامية / Endnotes:</b>
+    </section>
     <div id="pageFooter" class="page-footer" contenteditable="true"></div>
   </div>
 </div>
@@ -285,6 +303,10 @@
   let lastSelectedCell = null;
   let lastSelectedImage = null;
   let copiedFormat = null;
+
+  let suppressTracking = false;
+  let trackChangesEnabled = false;
+  let trackedChangeIndex = -1;
 
   function focusEditor() {
     if (editor.getAttribute('contenteditable') === 'true') {
@@ -375,6 +397,7 @@
   }
 
   function notifyContentChanged() {
+    if (suppressTracking) return;
     if (window.AndroidBridge && window.AndroidBridge.onContentChanged) {
       const payload = JSON.stringify({
         bodyHtml: editor.innerHTML,
@@ -410,6 +433,121 @@
   });
   document.getElementById('pageHeader').addEventListener('input', notifyContentChanged);
   document.getElementById('pageFooter').addEventListener('input', notifyContentChanged);
+
+  // --- Real-time Track Changes Observer ---
+  editor.addEventListener('beforeinput', function(e) {
+    if (!trackChangesEnabled || suppressTracking) return;
+
+    const inputType = e.inputType;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+
+    if (inputType === 'insertText' || inputType === 'insertCompositionText' || inputType === 'insertFromPaste') {
+      const textToInsert = e.data || (e.clipboardData ? e.clipboardData.getData('text/plain') : '');
+      if (!textToInsert) return;
+
+      e.preventDefault();
+      const changeId = 'tc_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+      const anchor = getCurrentSelectionAnchor();
+
+      suppressTracking = true;
+      range.deleteContents();
+
+      const ins = document.createElement('ins');
+      ins.setAttribute('data-remoffice-change-id', changeId);
+      ins.className = 'remoffice-insert';
+      ins.textContent = textToInsert;
+
+      range.insertNode(ins);
+
+      const newRange = document.createRange();
+      newRange.setStartAfter(ins);
+      newRange.setEndAfter(ins);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+
+      suppressTracking = false;
+
+      const changeObj = {
+        id: changeId,
+        type: 'INSERT',
+        elementId: anchor ? anchor.elementId : '',
+        anchor: anchor,
+        oldText: '',
+        newText: textToInsert,
+        oldHtml: '',
+        newHtml: ins.outerHTML,
+        author: 'المستخدم',
+        timestamp: Date.now(),
+        status: 'PENDING',
+        createdByUser: true
+      };
+      if (window.AndroidBridge && window.AndroidBridge.onTrackedChange) {
+        window.AndroidBridge.onTrackedChange(JSON.stringify(changeObj));
+      }
+      notifyContentChanged();
+    } else if (inputType === 'deleteContentBackward' || inputType === 'deleteContentForward' || inputType === 'deleteByCut') {
+      let deletedText = sel.toString();
+      if (!deletedText && inputType === 'deleteContentBackward') {
+        const cloneRange = range.cloneRange();
+        if (cloneRange.startOffset > 0) {
+          cloneRange.setStart(cloneRange.startContainer, cloneRange.startOffset - 1);
+          deletedText = cloneRange.toString();
+        }
+      }
+      if (!deletedText) return;
+
+      e.preventDefault();
+      const changeId = 'tc_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+      const anchor = getCurrentSelectionAnchor();
+
+      suppressTracking = true;
+      if (sel.isCollapsed && inputType === 'deleteContentBackward') {
+        const cloneRange = range.cloneRange();
+        if (cloneRange.startOffset > 0) {
+          cloneRange.setStart(cloneRange.startContainer, cloneRange.startOffset - 1);
+          cloneRange.deleteContents();
+        }
+      } else {
+        range.deleteContents();
+      }
+
+      const del = document.createElement('del');
+      del.setAttribute('data-remoffice-change-id', changeId);
+      del.className = 'remoffice-delete';
+      del.textContent = deletedText;
+
+      range.insertNode(del);
+
+      const newRange = document.createRange();
+      newRange.setStartAfter(del);
+      newRange.setEndAfter(del);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+
+      suppressTracking = false;
+
+      const changeObj = {
+        id: changeId,
+        type: 'DELETE',
+        elementId: anchor ? anchor.elementId : '',
+        anchor: anchor,
+        oldText: deletedText,
+        newText: '',
+        oldHtml: '',
+        newHtml: del.outerHTML,
+        author: 'المستخدم',
+        timestamp: Date.now(),
+        status: 'PENDING',
+        createdByUser: true
+      };
+      if (window.AndroidBridge && window.AndroidBridge.onTrackedChange) {
+        window.AndroidBridge.onTrackedChange(JSON.stringify(changeObj));
+      }
+      notifyContentChanged();
+    }
+  });
 
   function applyCopiedFormat() {
     if (!copiedFormat) return;
@@ -818,10 +956,11 @@
 
     // --- Styles ---
     applyStyle: (styleJson) => applyStyle(styleJson),
+    updateStyle: (styleJson) => updateStyle(styleJson),
 
     // --- Footnotes & Endnotes ---
     insertFootnote: (noteJson) => insertFootnote(noteJson),
-    insertEndnote: (noteJson) => insertFootnote(noteJson),
+    insertEndnote: (noteJson) => insertEndnote(noteJson),
     deleteNote: (noteId) => deleteNote(noteId),
     renumberNotes: () => renumberNotes(),
     scrollToNote: (noteId) => scrollToNote(noteId),
@@ -861,10 +1000,12 @@
     },
 
     setDocumentPayload: (bodyHtml, headerHtml, footerHtml) => {
+      suppressTracking = true;
       editor.innerHTML = bodyHtml || '<p><br></p>';
       document.getElementById('pageHeader').innerHTML = headerHtml || '';
       document.getElementById('pageFooter').innerHTML = footerHtml || '';
       ensureElementIds();
+      suppressTracking = false;
       notifySelectionState();
     }
   };
@@ -907,16 +1048,21 @@
     return editor.querySelector(`[data-remoffice-id="${id}"]`);
   }
 
+  function highlightElementTemporarily(el) {
+    if (!el) return;
+    const origBg = el.style.backgroundColor;
+    el.style.transition = 'background-color 0.5s';
+    el.style.backgroundColor = '#FEF08A';
+    setTimeout(() => { el.style.backgroundColor = origBg; }, 1500);
+  }
+
   function scrollToAnchor(anchorJson) {
     let anchor = typeof anchorJson === 'string' ? JSON.parse(anchorJson) : anchorJson;
     if (!anchor || !anchor.elementId) return;
     const el = findElementByRemofficeId(anchor.elementId);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el.style.transition = 'background-color 0.5s';
-      const origBg = el.style.backgroundColor;
-      el.style.backgroundColor = '#FEF08A';
-      setTimeout(() => { el.style.backgroundColor = origBg; }, 1500);
+      highlightElementTemporarily(el);
     }
   }
 
@@ -933,17 +1079,14 @@
     }
   }
 
-  // --- Track Changes ---
-  let trackChangesEnabled = false;
-  let isApplyingTrackChange = false;
-
+  // --- Track Changes Implementation ---
   function setTrackChangesEnabled(enabled) {
     trackChangesEnabled = Boolean(enabled);
     ensureElementIds();
   }
 
   function acceptTrackedChange(id) {
-    isApplyingTrackChange = true;
+    suppressTracking = true;
     const ins = editor.querySelector(`ins[data-remoffice-change-id="${id}"]`);
     if (ins) {
       const parent = ins.parentNode;
@@ -954,12 +1097,12 @@
     if (del) {
       del.parentNode.removeChild(del);
     }
-    isApplyingTrackChange = false;
+    suppressTracking = false;
     notifyContentChanged();
   }
 
   function rejectTrackedChange(id) {
-    isApplyingTrackChange = true;
+    suppressTracking = true;
     const ins = editor.querySelector(`ins[data-remoffice-change-id="${id}"]`);
     if (ins) {
       ins.parentNode.removeChild(ins);
@@ -970,12 +1113,12 @@
       while (del.firstChild) parent.insertBefore(del.firstChild, del);
       parent.removeChild(del);
     }
-    isApplyingTrackChange = false;
+    suppressTracking = false;
     notifyContentChanged();
   }
 
   function acceptAllTrackedChanges() {
-    isApplyingTrackChange = true;
+    suppressTracking = true;
     const insList = editor.querySelectorAll('ins[data-remoffice-change-id]');
     insList.forEach(ins => {
       const parent = ins.parentNode;
@@ -984,12 +1127,12 @@
     });
     const delList = editor.querySelectorAll('del[data-remoffice-change-id]');
     delList.forEach(del => del.parentNode.removeChild(del));
-    isApplyingTrackChange = false;
+    suppressTracking = false;
     notifyContentChanged();
   }
 
   function rejectAllTrackedChanges() {
-    isApplyingTrackChange = true;
+    suppressTracking = true;
     const insList = editor.querySelectorAll('ins[data-remoffice-change-id]');
     insList.forEach(ins => ins.parentNode.removeChild(ins));
     const delList = editor.querySelectorAll('del[data-remoffice-change-id]');
@@ -998,21 +1141,29 @@
       while (del.firstChild) parent.insertBefore(del.firstChild, del);
       parent.removeChild(del);
     });
-    isApplyingTrackChange = false;
+    suppressTracking = false;
     notifyContentChanged();
   }
 
   function goToNextTrackedChange() {
-    const el = editor.querySelector('ins[data-remoffice-change-id], del[data-remoffice-change-id]');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const list = editor.querySelectorAll('ins[data-remoffice-change-id], del[data-remoffice-change-id]');
+    if (list.length === 0) return;
+    trackedChangeIndex = (trackedChangeIndex + 1) % list.length;
+    const el = list[trackedChangeIndex];
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    highlightElementTemporarily(el);
   }
 
   function goToPreviousTrackedChange() {
     const list = editor.querySelectorAll('ins[data-remoffice-change-id], del[data-remoffice-change-id]');
-    if (list.length > 0) list[list.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (list.length === 0) return;
+    trackedChangeIndex = (trackedChangeIndex - 1 + list.length) % list.length;
+    const el = list[trackedChangeIndex];
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    highlightElementTemporarily(el);
   }
 
-  // --- Comments ---
+  // --- Comments Implementation ---
   function createCommentAnchor(commentId) {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return null;
@@ -1020,6 +1171,7 @@
     const text = sel.toString().trim();
     if (!text) return null;
 
+    const anchor = getCurrentSelectionAnchor();
     const mark = document.createElement('mark');
     mark.setAttribute('data-remoffice-comment-id', commentId);
     mark.className = 'remoffice-comment-anchor';
@@ -1031,11 +1183,15 @@
       range.insertNode(mark);
     }
     notifyContentChanged();
-    return {
+    const resultObj = {
       commentId: commentId,
-      quotedText: text,
-      anchor: getCurrentSelectionAnchor()
+      quote: text,
+      anchor: anchor
     };
+    if (window.AndroidBridge && window.AndroidBridge.onCommentAnchorCreated) {
+      window.AndroidBridge.onCommentAnchorCreated(JSON.stringify(resultObj));
+    }
+    return resultObj;
   }
 
   function selectCommentAnchor(commentId) {
@@ -1060,7 +1216,19 @@
     }
   }
 
-  // --- Styles ---
+  function setCommentResolved(commentId, resolved) {
+    const mark = editor.querySelector(`mark[data-remoffice-comment-id="${commentId}"]`);
+    if (mark) {
+      if (resolved) {
+        mark.classList.add('resolved');
+      } else {
+        mark.classList.remove('resolved');
+      }
+      notifyContentChanged();
+    }
+  }
+
+  // --- Styles Implementation ---
   function applyStyle(styleJson) {
     focusEditor();
     let style = typeof styleJson === 'string' ? JSON.parse(styleJson) : styleJson;
@@ -1083,6 +1251,19 @@
       block = newBlock;
     }
 
+    applyStyleToElement(block, style);
+    notifyContentChanged();
+  }
+
+  function updateStyle(styleJson) {
+    let style = typeof styleJson === 'string' ? JSON.parse(styleJson) : styleJson;
+    if (!style || !style.name) return;
+    const elements = editor.querySelectorAll(`[data-remoffice-style="${style.name}"]`);
+    elements.forEach(el => applyStyleToElement(el, style));
+    notifyContentChanged();
+  }
+
+  function applyStyleToElement(block, style) {
     block.setAttribute('data-remoffice-style', style.name);
     if (style.fontFamily) block.style.fontFamily = style.fontFamily;
     if (style.fontSizePt) block.style.fontSize = style.fontSizePt + 'pt';
@@ -1093,21 +1274,29 @@
     if (style.alignment) block.style.textAlign = style.alignment;
     if (style.dir) block.style.direction = style.dir;
     if (style.lineHeight) block.style.lineHeight = style.lineHeight;
-
-    notifyContentChanged();
+    if (style.spaceBeforePt !== undefined && style.spaceBeforePt !== null) block.style.marginTop = style.spaceBeforePt + 'pt';
+    if (style.spaceAfterPt !== undefined && style.spaceAfterPt !== null) block.style.marginBottom = style.spaceAfterPt + 'pt';
+    if (style.indentMm !== undefined && style.indentMm !== null) block.style.marginInlineStart = style.indentMm + 'mm';
   }
 
-  // --- Notes (Footnotes & Endnotes) ---
+  // --- Notes (Footnotes & Endnotes) Implementation ---
   function insertFootnote(noteJson) {
     focusEditor();
     let note = typeof noteJson === 'string' ? JSON.parse(noteJson) : noteJson;
     if (!note || !note.id) return;
 
+    const fnSection = document.getElementById('remofficeFootnotes');
+    if (fnSection) fnSection.style.display = 'block';
+
+    const refId = 'fnref_' + note.id;
+    const itemId = 'fn_' + note.id;
+
     const sup = document.createElement('sup');
+    sup.id = refId;
     sup.setAttribute('data-remoffice-note-id', note.id);
+    sup.setAttribute('data-remoffice-note-type', 'FOOTNOTE');
     sup.className = 'remoffice-note-reference';
-    sup.textContent = String(note.number || 1);
-    sup.onclick = function() { scrollToNote(note.id); };
+    sup.innerHTML = `<a href="#${itemId}" onclick="window.editorApi.scrollToNote('${note.id}');return false;">${note.number || 1}</a>`;
 
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -1117,20 +1306,53 @@
       editor.appendChild(sup);
     }
 
-    let notesContainer = document.getElementById('footnotesContainer');
-    if (!notesContainer) {
-      notesContainer = document.createElement('div');
-      notesContainer.id = 'footnotesContainer';
-      notesContainer.style.cssText = 'margin-top:24px;border-top:1px dashed #CBD5E1;padding-top:12px;font-size:10pt;color:#475569;';
-      notesContainer.innerHTML = '<b>الحواشي السفلية / Footnotes:</b>';
-      pageContainer.appendChild(notesContainer);
+    if (fnSection) {
+      const item = document.createElement('div');
+      item.id = itemId;
+      item.setAttribute('data-remoffice-note-item-id', note.id);
+      item.className = 'remoffice-note-item';
+      item.innerHTML = `<sup>${note.number || 1}</sup> ${note.text} <a href="#${refId}" onclick="window.editorApi.scrollToNoteReference('${note.id}');return false;">[↩]</a>`;
+      fnSection.appendChild(item);
     }
 
-    const noteItem = document.createElement('div');
-    noteItem.setAttribute('data-remoffice-note-item-id', note.id);
-    noteItem.style.margin = '4px 0';
-    noteItem.innerHTML = `<sup>${note.number || 1}</sup> ${note.text} <a href="#" style="font-size:9pt;margin-inline-start:6px;" onclick="window.editorApi.scrollToNoteReference('${note.id}');return false;">[رجوع]</a>`;
-    notesContainer.appendChild(noteItem);
+    renumberNotes();
+    notifyContentChanged();
+  }
+
+  function insertEndnote(noteJson) {
+    focusEditor();
+    let note = typeof noteJson === 'string' ? JSON.parse(noteJson) : noteJson;
+    if (!note || !note.id) return;
+
+    const enSection = document.getElementById('remofficeEndnotes');
+    if (enSection) enSection.style.display = 'block';
+
+    const refId = 'enref_' + note.id;
+    const itemId = 'en_' + note.id;
+
+    const sup = document.createElement('sup');
+    sup.id = refId;
+    sup.setAttribute('data-remoffice-note-id', note.id);
+    sup.setAttribute('data-remoffice-note-type', 'ENDNOTE');
+    sup.className = 'remoffice-note-reference';
+    sup.innerHTML = `<a href="#${itemId}" onclick="window.editorApi.scrollToNote('${note.id}');return false;">${note.number || 1}</a>`;
+
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      range.insertNode(sup);
+    } else {
+      editor.appendChild(sup);
+    }
+
+    if (enSection) {
+      const item = document.createElement('div');
+      item.id = itemId;
+      item.setAttribute('data-remoffice-note-item-id', note.id);
+      item.className = 'remoffice-note-item';
+      item.innerHTML = `<sup>${note.number || 1}</sup> ${note.text} <a href="#${refId}" onclick="window.editorApi.scrollToNoteReference('${note.id}');return false;">[↩]</a>`;
+      enSection.appendChild(item);
+    }
 
     renumberNotes();
     notifyContentChanged();
@@ -1156,25 +1378,39 @@
   }
 
   function renumberNotes() {
-    const refs = editor.querySelectorAll('sup.remoffice-note-reference');
-    refs.forEach((ref, idx) => {
+    const fnRefs = editor.querySelectorAll('sup[data-remoffice-note-type="FOOTNOTE"]');
+    fnRefs.forEach((ref, idx) => {
       const num = idx + 1;
-      ref.textContent = String(num);
+      const a = ref.querySelector('a');
+      if (a) a.textContent = String(num);
       const noteId = ref.getAttribute('data-remoffice-note-id');
-      const item = document.querySelector(`[data-remoffice-note-item-id="${noteId}"]`);
+      const item = document.querySelector(`div[data-remoffice-note-item-id="${noteId}"]`);
+      if (item && item.querySelector('sup')) {
+        item.querySelector('sup').textContent = String(num);
+      }
+    });
+
+    const enRefs = editor.querySelectorAll('sup[data-remoffice-note-type="ENDNOTE"]');
+    enRefs.forEach((ref, idx) => {
+      const num = idx + 1;
+      const a = ref.querySelector('a');
+      if (a) a.textContent = String(num);
+      const noteId = ref.getAttribute('data-remoffice-note-id');
+      const item = document.querySelector(`div[data-remoffice-note-item-id="${noteId}"]`);
       if (item && item.querySelector('sup')) {
         item.querySelector('sup').textContent = String(num);
       }
     });
   }
 
-  // --- Bookmarks & Internal Links ---
+  // --- Bookmarks & Internal Links Implementation ---
   function addBookmark(bookmarkJson) {
     focusEditor();
     let bm = typeof bookmarkJson === 'string' ? JSON.parse(bookmarkJson) : bookmarkJson;
     if (!bm || !bm.id || !bm.name) return;
 
     const span = document.createElement('span');
+    span.id = 'bm_' + bm.id;
     span.setAttribute('data-remoffice-bookmark-id', bm.id);
     span.setAttribute('data-remoffice-bookmark-name', bm.name);
     span.className = 'remoffice-bookmark';
@@ -1208,7 +1444,7 @@
   }
 
   function goToBookmark(id) {
-    const bm = editor.querySelector(`span[data-remoffice-bookmark-id="${id}"]`);
+    const bm = editor.querySelector(`span[data-remoffice-bookmark-id="${id}"], #bm_${id}`);
     if (bm) {
       bm.scrollIntoView({ behavior: 'smooth', block: 'center' });
       bm.style.borderInlineStartWidth = '6px';
@@ -1236,7 +1472,7 @@
     notifyContentChanged();
   }
 
-  // --- Table of Contents ---
+  // --- Table of Contents Implementation ---
   function insertTableOfContents() {
     removeTableOfContents();
     const headings = editor.querySelectorAll('h1, h2, h3, h4, h5, h6');
