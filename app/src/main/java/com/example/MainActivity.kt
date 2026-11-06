@@ -424,7 +424,34 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     }
 
     BackHandler {
-        currentScreen = AppScreen.HOME
+        // Back is intentionally layered: close the top-most transient UI first,
+        // then read mode/toolbar/tab, then leave the editor for Home.
+        when {
+            showRenameDialog -> showRenameDialog = false
+            showTableDialog -> showTableDialog = false
+            showHyperlinkDialog -> showHyperlinkDialog = false
+            showTextBoxDialog -> showTextBoxDialog = false
+            showCustomMarginDialog -> showCustomMarginDialog = false
+            showFindReplaceDialog -> showFindReplaceDialog = false
+            showAiKeyDialog -> showAiKeyDialog = false
+            showBookmarkDialog -> showBookmarkDialog = false
+            showNoteDialog -> showNoteDialog = false
+            showDocPropertiesDialog -> showDocPropertiesDialog = false
+            showStylesDialog -> showStylesDialog = false
+            showTrackedChangesPanel -> showTrackedChangesPanel = false
+            showCommentsPanel -> showCommentsPanel = false
+            showCommentDialog -> showCommentDialog = false
+            showSignatureDialog -> showSignatureDialog = false
+            showTemplatesDialog -> showTemplatesDialog = false
+            showAiChatBox -> showAiChatBox = false
+            showTopFormattingBar -> showTopFormattingBar = false
+            isReadMode -> {
+                viewModel.setReadMode(false)
+                EditorCommands.setReadMode(webViewRef, false)
+            }
+            activeTab != com.example.model.EditorTab.HOME -> viewModel.selectTab(com.example.model.EditorTab.HOME)
+            else -> currentScreen = AppScreen.HOME
+        }
     }
 
     Scaffold(
