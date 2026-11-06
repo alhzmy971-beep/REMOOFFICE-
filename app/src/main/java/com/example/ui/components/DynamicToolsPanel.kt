@@ -316,7 +316,7 @@ private fun HomeToolsContent(
         "Amiri", "Cairo", "Tajawal", "Reem Kufi", "Almarai",
         "Kufi", "El Messiri", "Naskh", "Ruqaa", "Scheherazade", "Lateef", "Changa", "Mada",
         "Playfair Display", "Merriweather", "Roboto", "Montserrat",
-        "Arial", "Times New Roman", "Georgia", "Courier New", "Tahoma"
+        "Arial", "Calibri", "Cambria", "Times New Roman", "Georgia", "Garamond", "Baskerville", "Palatino", "Verdana", "Trebuchet MS", "Helvetica", "Courier New", "Consolas", "Tahoma", "Segoe UI"
     )
     val sizes = listOf(8, 10, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72)
     val colors = listOf(
