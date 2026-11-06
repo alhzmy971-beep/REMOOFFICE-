@@ -70,6 +70,16 @@ class EditorViewModel : ViewModel() {
         _isTrackChangesEnabled.value = !_isTrackChangesEnabled.value
     }
 
+    fun addTrackedChange(change: TrackedChange) {
+        _documentPayload.update { payload ->
+            if (payload.trackedChanges.any { it.id == change.id }) {
+                payload
+            } else {
+                payload.copy(trackedChanges = payload.trackedChanges + change)
+            }
+        }
+    }
+
     fun recordTrackedChange(type: String, text: String) {
         if (!_isTrackChangesEnabled.value || text.isBlank()) return
         val change = TrackedChange(
@@ -78,9 +88,7 @@ class EditorViewModel : ViewModel() {
             newText = text,
             author = _documentPayload.value.properties.author
         )
-        _documentPayload.update {
-            it.copy(trackedChanges = it.trackedChanges + change)
-        }
+        addTrackedChange(change)
     }
 
     fun acceptTrackedChange(id: String) {
@@ -124,26 +132,42 @@ class EditorViewModel : ViewModel() {
     }
 
     // --- Comments ---
-    fun addComment(quote: String, text: String) {
+    fun addComment(
+        id: String = UUID.randomUUID().toString(),
+        quote: String,
+        text: String,
+        anchor: com.example.model.DocumentAnchor? = null
+    ): DocumentComment {
         val newComment = DocumentComment(
-            id = UUID.randomUUID().toString(),
+            id = id,
             quote = quote,
             text = text,
-            author = _documentPayload.value.properties.author
+            author = _documentPayload.value.properties.author,
+            timestamp = System.currentTimeMillis(),
+            resolved = false,
+            anchor = anchor,
+            replies = emptyList()
         )
         _documentPayload.update {
             it.copy(comments = it.comments + newComment)
         }
+        return newComment
     }
 
     fun replyToComment(commentId: String, replyText: String) {
         if (replyText.isBlank()) return
         val author = _documentPayload.value.properties.author
-        _documentPayload.update {
-            it.copy(
-                comments = it.comments.map { c ->
+        val reply = com.example.model.CommentReply(
+            id = UUID.randomUUID().toString(),
+            author = author,
+            text = replyText,
+            timestamp = System.currentTimeMillis()
+        )
+        _documentPayload.update { payload ->
+            payload.copy(
+                comments = payload.comments.map { c ->
                     if (c.id == commentId) {
-                        c.copy(text = "${c.text}\n↳ [$author]: $replyText")
+                        c.copy(replies = c.replies + reply)
                     } else c
                 }
             )
@@ -202,6 +226,21 @@ class EditorViewModel : ViewModel() {
             it.copy(bookmarks = it.bookmarks + bm)
         }
         return bm
+    }
+
+    fun renameBookmark(id: String, newName: String): Boolean {
+        val clean = newName.trim()
+        if (clean.isEmpty()) return false
+        val exists = _documentPayload.value.bookmarks.any { it.name.equals(clean, ignoreCase = true) && it.id != id }
+        if (exists) return false
+        _documentPayload.update { payload ->
+            payload.copy(
+                bookmarks = payload.bookmarks.map { bm ->
+                    if (bm.id == id) bm.copy(name = clean) else bm
+                }
+            )
+        }
+        return true
     }
 
     fun deleteBookmark(id: String) {

@@ -26,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -447,6 +448,127 @@ fun CommentDialog(
     )
 }
 
+@Composable
+fun CommentsPanelDialog(
+    comments: List<com.example.model.DocumentComment>,
+    onDismiss: () -> Unit,
+    onSelectComment: (id: String) -> Unit,
+    onReplyComment: (id: String, replyText: String) -> Unit,
+    onToggleResolve: (id: String) -> Unit,
+    onEditComment: (id: String, newText: String) -> Unit,
+    onDeleteComment: (id: String) -> Unit
+) {
+    var replyInputMap by remember { mutableStateOf(mapOf<String, String>()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("لوحة التعليقات والملاحظات (${comments.size})") },
+        text = {
+            if (comments.isEmpty()) {
+                Text("لا توجد تعليقات مسجلة في هذا المستند.")
+            } else {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    comments.forEach { c ->
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (c.resolved) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "💬 ${c.author}",
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    Row {
+                                        TextButton(onClick = { onToggleResolve(c.id) }) {
+                                            Text(if (c.resolved) "إعادة فتح" else "حل", fontSize = 11.sp)
+                                        }
+                                        TextButton(onClick = { onDeleteComment(c.id) }) {
+                                            Text("حذف", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+                                }
+                                if (c.quote.isNotBlank()) {
+                                    Text(
+                                        text = "النص المحدد: «${c.quote}»",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.clickable { onSelectComment(c.id) }
+                                    )
+                                }
+                                Text(
+                                    text = c.text,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+
+                                if (c.replies.isNotEmpty()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .padding(start = 12.dp, top = 4.dp)
+                                            .fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        c.replies.forEach { r ->
+                                            Text(
+                                                text = "↳ [${r.author}]: ${r.text}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val currentReply = replyInputMap[c.id] ?: ""
+                                    OutlinedTextField(
+                                        value = currentReply,
+                                        onValueChange = { text -> replyInputMap = replyInputMap + (c.id to text) },
+                                        placeholder = { Text("إضافة رد...", fontSize = 11.sp) },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Button(
+                                        onClick = {
+                                            if (currentReply.isNotBlank()) {
+                                                onReplyComment(c.id, currentReply.trim())
+                                                replyInputMap = replyInputMap + (c.id to "")
+                                            }
+                                        },
+                                        enabled = currentReply.isNotBlank()
+                                    ) {
+                                        Text("رد", fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إغلاق") }
+        }
+    )
+}
 
 @Composable
 fun TemplatesDialog(
@@ -632,7 +754,7 @@ fun NoteDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("إلغاء") }
+            TextButton(onClick = onDismiss) { Text("إغلاق") }
         }
     )
 }
@@ -719,13 +841,22 @@ fun StylesDialog(
     onDismiss: () -> Unit,
     onApplyStyle: (com.example.model.DocumentStyle) -> Unit,
     onCreateStyle: (com.example.model.DocumentStyle) -> Unit,
+    onUpdateStyle: (com.example.model.DocumentStyle) -> Unit = {},
     onDeleteStyle: (String) -> Unit
 ) {
     var styleNameInput by remember { mutableStateOf("") }
     var fontInput by remember { mutableStateOf("Arial") }
-    var sizeInput by remember { mutableIntStateOf(16) }
+    var sizeInputText by remember { mutableStateOf("16") }
+    var colorHexInput by remember { mutableStateOf("#1E293B") }
     var isBoldInput by remember { mutableStateOf(false) }
     var isItalicInput by remember { mutableStateOf(false) }
+    var isUnderlineInput by remember { mutableStateOf(false) }
+    var alignmentInput by remember { mutableStateOf("left") }
+    var dirInput by remember { mutableStateOf("rtl") }
+    var lineHeightInput by remember { mutableStateOf("1.5") }
+    var spaceBeforeInput by remember { mutableStateOf("0") }
+    var spaceAfterInput by remember { mutableStateOf("0") }
+    var indentInput by remember { mutableStateOf("0") }
 
     val presetStyles = remember {
         listOf(
@@ -766,25 +897,61 @@ fun StylesDialog(
                                         onDismiss()
                                     }
                             )
-                            Button(onClick = {
-                                onApplyStyle(st)
-                                onDismiss()
-                            }) {
-                                Text("تطبيق", fontSize = 11.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Button(onClick = {
+                                    onApplyStyle(st)
+                                    onDismiss()
+                                }) {
+                                    Text("تطبيق", fontSize = 11.sp)
+                                }
                             }
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
-                Text("إنشاء نمط مخصص جديد:", style = MaterialTheme.typography.titleSmall)
+                Text("إنشاء أو تعديل نمط مخصص:", style = MaterialTheme.typography.titleSmall)
                 OutlinedTextField(
                     value = styleNameInput,
                     onValueChange = { styleNameInput = it },
-                    label = { Text("اسم النمط الجديد") },
+                    label = { Text("اسم النمط") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = fontInput,
+                        onValueChange = { fontInput = it },
+                        label = { Text("الخط") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = sizeInputText,
+                        onValueChange = { sizeInputText = it },
+                        label = { Text("الحجم pt") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.FilterChip(
+                        selected = isBoldInput,
+                        onClick = { isBoldInput = !isBoldInput },
+                        label = { Text("عريض") }
+                    )
+                    androidx.compose.material3.FilterChip(
+                        selected = isItalicInput,
+                        onClick = { isItalicInput = !isItalicInput },
+                        label = { Text("مائل") }
+                    )
+                    androidx.compose.material3.FilterChip(
+                        selected = isUnderlineInput,
+                        onClick = { isUnderlineInput = !isUnderlineInput },
+                        label = { Text("تحته خط") }
+                    )
+                }
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
                         if (styleNameInput.isNotBlank()) {
@@ -792,12 +959,21 @@ fun StylesDialog(
                                 name = styleNameInput.trim(),
                                 htmlTag = "p",
                                 fontFamily = fontInput,
-                                fontSizePt = sizeInput,
+                                fontSizePt = sizeInputText.toIntOrNull() ?: 14,
+                                colorHex = colorHexInput,
                                 isBold = isBoldInput,
-                                isItalic = isItalicInput
+                                isItalic = isItalicInput,
+                                isUnderline = isUnderlineInput,
+                                alignment = alignmentInput,
+                                dir = dirInput,
+                                lineHeight = lineHeightInput,
+                                spaceBeforePt = spaceBeforeInput.toIntOrNull() ?: 0,
+                                spaceAfterPt = spaceAfterInput.toIntOrNull() ?: 0,
+                                indentMm = indentInput.toIntOrNull() ?: 0
                             )
                             onCreateStyle(newSt)
                             onApplyStyle(newSt)
+                            onUpdateStyle(newSt)
                             styleNameInput = ""
                             onDismiss()
                         }

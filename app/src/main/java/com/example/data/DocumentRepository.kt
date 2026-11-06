@@ -1,6 +1,7 @@
 package com.example.data
 
 import android.content.Context
+import com.example.model.DocumentAnchor
 import com.example.model.DocumentComment
 import com.example.model.DocumentBookmark
 import com.example.model.DocumentNote
@@ -183,6 +184,26 @@ class DocumentRepository(context: Context) {
         saveIndex(newList)
     }
 
+    private fun serializeAnchor(anchor: DocumentAnchor?): JSONObject? {
+        if (anchor == null) return null
+        return JSONObject().apply {
+            put("elementId", anchor.elementId)
+            put("startOffset", anchor.startOffset)
+            put("endOffset", anchor.endOffset)
+            put("quotedText", anchor.quotedText)
+        }
+    }
+
+    private fun deserializeAnchor(obj: JSONObject?): DocumentAnchor? {
+        if (obj == null) return null
+        return DocumentAnchor(
+            elementId = obj.optString("elementId", ""),
+            startOffset = obj.optInt("startOffset", 0),
+            endOffset = obj.optInt("endOffset", 0),
+            quotedText = obj.optString("quotedText", "")
+        )
+    }
+
     private fun serializePayload(payload: DocumentPayload): String {
         val cfg = payload.pageConfig
         val cfgObj = JSONObject().apply {
@@ -196,6 +217,15 @@ class DocumentRepository(context: Context) {
         }
         val commentsArr = JSONArray()
         payload.comments.forEach { c ->
+            val repliesArr = JSONArray()
+            c.replies.forEach { r ->
+                repliesArr.put(JSONObject().apply {
+                    put("id", r.id)
+                    put("author", r.author)
+                    put("text", r.text)
+                    put("timestamp", r.timestamp)
+                })
+            }
             commentsArr.put(
                 JSONObject().apply {
                     put("id", c.id)
@@ -204,6 +234,8 @@ class DocumentRepository(context: Context) {
                     put("author", c.author)
                     put("timestamp", c.timestamp)
                     put("resolved", c.resolved)
+                    put("anchor", serializeAnchor(c.anchor))
+                    put("replies", repliesArr)
                 }
             )
         }
@@ -212,22 +244,35 @@ class DocumentRepository(context: Context) {
             changesArr.put(JSONObject().apply {
                 put("id", change.id)
                 put("type", change.type)
+                put("elementId", change.elementId)
+                put("anchor", serializeAnchor(change.anchor))
                 put("oldText", change.oldText)
                 put("newText", change.newText)
+                put("oldHtml", change.oldHtml)
+                put("newHtml", change.newHtml)
                 put("author", change.author)
                 put("timestamp", change.timestamp)
                 put("status", change.status)
+                put("createdByUser", change.createdByUser)
             })
         }
         val stylesArr = JSONArray()
         payload.styles.forEach { style ->
             stylesArr.put(JSONObject().apply {
                 put("name", style.name)
+                put("htmlTag", style.htmlTag)
                 put("fontFamily", style.fontFamily)
                 put("fontSizePt", style.fontSizePt)
                 put("colorHex", style.colorHex)
                 put("isBold", style.isBold)
                 put("isItalic", style.isItalic)
+                put("isUnderline", style.isUnderline)
+                put("alignment", style.alignment)
+                put("dir", style.dir)
+                put("lineHeight", style.lineHeight)
+                put("spaceBeforePt", style.spaceBeforePt)
+                put("spaceAfterPt", style.spaceAfterPt)
+                put("indentMm", style.indentMm)
             })
         }
         val bookmarksArr = JSONArray()
@@ -235,6 +280,7 @@ class DocumentRepository(context: Context) {
             bookmarksArr.put(JSONObject().apply {
                 put("id", bookmark.id)
                 put("name", bookmark.name)
+                put("anchor", serializeAnchor(bookmark.anchor))
                 put("timestamp", bookmark.timestamp)
             })
         }
@@ -245,6 +291,7 @@ class DocumentRepository(context: Context) {
                 put("type", note.type)
                 put("text", note.text)
                 put("number", note.number)
+                put("anchor", serializeAnchor(note.anchor))
             })
         }
         val props = payload.properties
@@ -294,6 +341,18 @@ class DocumentRepository(context: Context) {
             if (cArr != null) {
                 for (i in 0 until cArr.length()) {
                     val cObj = cArr.getJSONObject(i)
+                    val replies = mutableListOf<com.example.model.CommentReply>()
+                    cObj.optJSONArray("replies")?.let { rArr ->
+                        for (j in 0 until rArr.length()) {
+                            val rObj = rArr.getJSONObject(j)
+                            replies.add(com.example.model.CommentReply(
+                                id = rObj.optString("id", UUID.randomUUID().toString()),
+                                author = rObj.optString("author", "المستخدم"),
+                                text = rObj.optString("text", ""),
+                                timestamp = rObj.optLong("timestamp", System.currentTimeMillis())
+                            ))
+                        }
+                    }
                     comments.add(
                         DocumentComment(
                             id = cObj.getString("id"),
@@ -301,7 +360,9 @@ class DocumentRepository(context: Context) {
                             text = cObj.optString("text", ""),
                             author = cObj.optString("author", "المستخدم"),
                             timestamp = cObj.optLong("timestamp", System.currentTimeMillis()),
-                            resolved = cObj.optBoolean("resolved", false)
+                            resolved = cObj.optBoolean("resolved", false),
+                            anchor = deserializeAnchor(cObj.optJSONObject("anchor")),
+                            replies = replies
                         )
                     )
                 }
@@ -314,11 +375,16 @@ class DocumentRepository(context: Context) {
                     trackedChanges.add(TrackedChange(
                         id = item.optString("id", UUID.randomUUID().toString()),
                         type = item.optString("type", "INSERT"),
+                        elementId = item.optString("elementId", ""),
+                        anchor = deserializeAnchor(item.optJSONObject("anchor")),
                         oldText = item.optString("oldText", ""),
                         newText = item.optString("newText", item.optString("text", "")),
+                        oldHtml = item.optString("oldHtml", ""),
+                        newHtml = item.optString("newHtml", ""),
                         author = item.optString("author", "المستخدم"),
                         timestamp = item.optLong("timestamp", System.currentTimeMillis()),
-                        status = item.optString("status", "PENDING")
+                        status = item.optString("status", "PENDING"),
+                        createdByUser = item.optBoolean("createdByUser", true)
                     ))
                 }
             }
@@ -328,11 +394,19 @@ class DocumentRepository(context: Context) {
                     val item = arr.getJSONObject(i)
                     styles.add(DocumentStyle(
                         name = item.optString("name", "Normal"),
+                        htmlTag = item.optString("htmlTag", "p"),
                         fontFamily = item.optString("fontFamily", "Arial"),
                         fontSizePt = item.optInt("fontSizePt", 14),
                         colorHex = item.optString("colorHex", "#1E293B"),
                         isBold = item.optBoolean("isBold", false),
-                        isItalic = item.optBoolean("isItalic", false)
+                        isItalic = item.optBoolean("isItalic", false),
+                        isUnderline = item.optBoolean("isUnderline", false),
+                        alignment = item.optString("alignment", "left"),
+                        dir = item.optString("dir", "rtl"),
+                        lineHeight = item.optString("lineHeight", "1.5"),
+                        spaceBeforePt = item.optInt("spaceBeforePt", 0),
+                        spaceAfterPt = item.optInt("spaceAfterPt", 0),
+                        indentMm = item.optInt("indentMm", 0)
                     ))
                 }
             }
@@ -343,6 +417,7 @@ class DocumentRepository(context: Context) {
                     bookmarks.add(DocumentBookmark(
                         id = item.optString("id", UUID.randomUUID().toString()),
                         name = item.optString("name", ""),
+                        anchor = deserializeAnchor(item.optJSONObject("anchor")),
                         timestamp = item.optLong("timestamp", System.currentTimeMillis())
                     ))
                 }
@@ -354,7 +429,9 @@ class DocumentRepository(context: Context) {
                     notes.add(DocumentNote(
                         id = item.optString("id", UUID.randomUUID().toString()),
                         type = item.optString("type", "FOOTNOTE"),
-                        text = item.optString("text", "")
+                        text = item.optString("text", ""),
+                        number = item.optInt("number", i + 1),
+                        anchor = deserializeAnchor(item.optJSONObject("anchor"))
                     ))
                 }
             }
@@ -363,6 +440,7 @@ class DocumentRepository(context: Context) {
                 author = propsObj.optString("author", "المستخدم"),
                 title = propsObj.optString("title", ""),
                 subject = propsObj.optString("subject", ""),
+                keywords = propsObj.optString("keywords", ""),
                 creationDate = propsObj.optLong("creationDate", System.currentTimeMillis()),
                 modificationDate = propsObj.optLong("modificationDate", System.currentTimeMillis()),
                 revision = propsObj.optInt("revision", 1)

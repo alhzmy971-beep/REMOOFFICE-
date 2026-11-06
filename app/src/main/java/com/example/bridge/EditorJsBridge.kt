@@ -18,7 +18,8 @@ import org.json.JSONObject
 class EditorJsBridge(
     private val onStateUpdated: (EditorSelectionState) -> Unit,
     private val onContentUpdated: (bodyHtml: String, headerHtml: String, footerHtml: String) -> Unit,
-    private val onTrackedChangeCreated: ((TrackedChange) -> Unit)? = null
+    private val onTrackedChangeCreated: ((TrackedChange) -> Unit)? = null,
+    private val onCommentAnchorCreated: ((commentId: String, quote: String, anchor: DocumentAnchor?) -> Unit)? = null
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -96,6 +97,26 @@ class EditorJsBridge(
                 createdByUser = obj.optBoolean("createdByUser", true)
             )
             mainHandler.post { onTrackedChangeCreated?.invoke(change) }
+        } catch (_: Exception) {
+        }
+    }
+
+    @JavascriptInterface
+    fun onCommentAnchorCreated(json: String) {
+        try {
+            val obj = JSONObject(json)
+            val commentId = obj.optString("commentId", "")
+            val quote = obj.optString("quote", "")
+            val anchorObj = obj.optJSONObject("anchor")
+            val anchor = anchorObj?.let {
+                DocumentAnchor(
+                    elementId = it.optString("elementId", ""),
+                    startOffset = it.optInt("startOffset", 0),
+                    endOffset = it.optInt("endOffset", 0),
+                    quotedText = it.optString("quotedText", "")
+                )
+            }
+            mainHandler.post { onCommentAnchorCreated?.invoke(commentId, quote, anchor) }
         } catch (_: Exception) {
         }
     }
@@ -307,9 +328,33 @@ object EditorCommands {
             put("alignment", style.alignment)
             put("dir", style.dir)
             put("lineHeight", style.lineHeight)
+            put("spaceBeforePt", style.spaceBeforePt)
+            put("spaceAfterPt", style.spaceAfterPt)
+            put("indentMm", style.indentMm)
         }.toString()
         val escaped = JSONObject.quote(json)
         eval(webView, "window.editorApi.applyStyle($escaped)")
+    }
+
+    fun updateStyle(webView: WebView?, style: DocumentStyle) {
+        val json = JSONObject().apply {
+            put("name", style.name)
+            put("htmlTag", style.htmlTag)
+            put("fontFamily", style.fontFamily)
+            put("fontSizePt", style.fontSizePt)
+            put("colorHex", style.colorHex)
+            put("isBold", style.isBold)
+            put("isItalic", style.isItalic)
+            put("isUnderline", style.isUnderline)
+            put("alignment", style.alignment)
+            put("dir", style.dir)
+            put("lineHeight", style.lineHeight)
+            put("spaceBeforePt", style.spaceBeforePt)
+            put("spaceAfterPt", style.spaceAfterPt)
+            put("indentMm", style.indentMm)
+        }.toString()
+        val escaped = JSONObject.quote(json)
+        eval(webView, "window.editorApi.updateStyle($escaped)")
     }
 
     // --- Notes Commands ---
@@ -322,6 +367,17 @@ object EditorCommands {
         }.toString()
         val escaped = JSONObject.quote(json)
         eval(webView, "window.editorApi.insertFootnote($escaped)")
+    }
+
+    fun insertEndnote(webView: WebView?, note: DocumentNote) {
+        val json = JSONObject().apply {
+            put("id", note.id)
+            put("number", note.number)
+            put("text", note.text)
+            put("type", note.type)
+        }.toString()
+        val escaped = JSONObject.quote(json)
+        eval(webView, "window.editorApi.insertEndnote($escaped)")
     }
 
     fun deleteNote(webView: WebView?, noteId: String) {

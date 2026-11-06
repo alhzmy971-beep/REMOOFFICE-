@@ -172,6 +172,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     var showDocPropertiesDialog by remember { mutableStateOf(false) }
     var showStylesDialog by remember { mutableStateOf(false) }
     var showTrackedChangesPanel by remember { mutableStateOf(false) }
+    var showCommentsPanel by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentScreen) {
         if (currentScreen == AppScreen.HOME) {
@@ -507,6 +508,18 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                         )
                                         viewModel.setDocumentPayload(updatedPayload)
                                         persistPayload(updatedPayload)
+                                    },
+                                    onTrackedChangeCreated = { change ->
+                                        viewModel.addTrackedChange(change)
+                                        persistPayload(viewModel.documentPayload.value)
+                                    },
+                                    onCommentAnchorCreated = { commentId, quote, anchor ->
+                                        val comments = viewModel.documentPayload.value.comments.map { c ->
+                                            if (c.id == commentId) c.copy(quote = quote, anchor = anchor) else c
+                                        }
+                                        val updated = viewModel.documentPayload.value.copy(comments = comments)
+                                        viewModel.setDocumentPayload(updated)
+                                        persistPayload(updated)
                                     }
                                 ),
                                 "AndroidBridge"
@@ -654,9 +667,12 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             onOpenBookmarkDialog = { showBookmarkDialog = true },
                             onOpenNoteDialog = { showNoteDialog = true },
                             onInsertTableOfContents = { EditorCommands.insertTableOfContents(webViewRef) },
+                            onUpdateTableOfContents = { EditorCommands.updateTableOfContents(webViewRef) },
+                            onRemoveTableOfContents = { EditorCommands.removeTableOfContents(webViewRef) },
                             onOpenTrackedChangesPanel = { showTrackedChangesPanel = true },
                             onOpenStylesDialog = { showStylesDialog = true },
-                            onOpenDocPropertiesDialog = { showDocPropertiesDialog = true }
+                            onOpenDocPropertiesDialog = { showDocPropertiesDialog = true },
+                            onOpenCommentsPanel = { showCommentsPanel = true }
                         )
 
                         BottomTabBar(
@@ -958,9 +974,42 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     if (showCommentDialog) {
         CommentDialog(
             onDismiss = { showCommentDialog = false },
-            onInsertComment = { comment ->
-                viewModel.addComment(quote = selectionState.selectedText, text = comment)
+            onInsertComment = { commentText ->
+                val commentId = java.util.UUID.randomUUID().toString()
+                viewModel.addComment(id = commentId, quote = selectionState.selectedText, text = commentText)
+                EditorCommands.createCommentAnchor(webViewRef, commentId)
+                persistPayload(viewModel.documentPayload.value)
                 viewModel.showMessage("تمت إضافة التعليق")
+            }
+        )
+    }
+
+    if (showCommentsPanel) {
+        com.example.ui.components.CommentsPanelDialog(
+            comments = documentPayload.comments,
+            onDismiss = { showCommentsPanel = false },
+            onSelectComment = { id -> EditorCommands.selectCommentAnchor(webViewRef, id) },
+            onReplyComment = { id, replyText ->
+                viewModel.replyToComment(id, replyText)
+                persistPayload(viewModel.documentPayload.value)
+            },
+            onToggleResolve = { id ->
+                val comment = documentPayload.comments.find { it.id == id }
+                if (comment != null) {
+                    val newStatus = !comment.resolved
+                    viewModel.toggleResolveComment(id)
+                    EditorCommands.setCommentResolved(webViewRef, id, newStatus)
+                    persistPayload(viewModel.documentPayload.value)
+                }
+            },
+            onEditComment = { id, newText ->
+                viewModel.editComment(id, newText)
+                persistPayload(viewModel.documentPayload.value)
+            },
+            onDeleteComment = { id ->
+                viewModel.deleteComment(id)
+                EditorCommands.removeCommentAnchor(webViewRef, id)
+                persistPayload(viewModel.documentPayload.value)
             }
         )
     }
@@ -1031,7 +1080,10 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             onDismiss = { showBookmarkDialog = false },
             onAddBookmark = { name ->
                 val bm = viewModel.addBookmark(name)
-                bm?.let { EditorCommands.addBookmark(webViewRef, it) }
+                bm?.let {
+                    EditorCommands.addBookmark(webViewRef, it)
+                    persistPayload(viewModel.documentPayload.value)
+                }
                 viewModel.showMessage("تمت إضافة العلامة المرجعية")
             },
             onSelectBookmark = { id ->
@@ -1040,6 +1092,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             onDeleteBookmark = { id ->
                 EditorCommands.deleteBookmark(webViewRef, id)
                 viewModel.deleteBookmark(id)
+                persistPayload(viewModel.documentPayload.value)
             },
             onInsertInternalLink = { id, text ->
                 EditorCommands.insertInternalLink(webViewRef, id, text)
@@ -1053,7 +1106,12 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             onAddNote = { type, text ->
                 val note = viewModel.addNote(type, text)
                 note?.let {
-                    EditorCommands.insertFootnote(webViewRef, it)
+                    if (type == "ENDNOTE") {
+                        EditorCommands.insertEndnote(webViewRef, it)
+                    } else {
+                        EditorCommands.insertFootnote(webViewRef, it)
+                    }
+                    persistPayload(viewModel.documentPayload.value)
                     viewModel.showMessage("تمت إضافة الحاشية")
                 }
             }
@@ -1086,9 +1144,16 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             },
             onCreateStyle = { newStyle ->
                 viewModel.saveCustomStyle(newStyle)
+                persistPayload(viewModel.documentPayload.value)
+            },
+            onUpdateStyle = { style ->
+                viewModel.saveCustomStyle(style)
+                EditorCommands.updateStyle(webViewRef, style)
+                persistPayload(viewModel.documentPayload.value)
             },
             onDeleteStyle = { name ->
                 viewModel.deleteCustomStyle(name)
+                persistPayload(viewModel.documentPayload.value)
             }
         )
     }
@@ -1105,18 +1170,22 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             onAccept = { id ->
                 viewModel.acceptTrackedChange(id)
                 EditorCommands.acceptTrackedChange(webViewRef, id)
+                persistPayload(viewModel.documentPayload.value)
             },
             onReject = { id ->
                 viewModel.rejectTrackedChange(id)
                 EditorCommands.rejectTrackedChange(webViewRef, id)
+                persistPayload(viewModel.documentPayload.value)
             },
             onAcceptAll = {
                 viewModel.acceptAllTrackedChanges()
                 EditorCommands.acceptAllTrackedChanges(webViewRef)
+                persistPayload(viewModel.documentPayload.value)
             },
             onRejectAll = {
                 viewModel.rejectAllTrackedChanges()
                 EditorCommands.rejectAllTrackedChanges(webViewRef)
+                persistPayload(viewModel.documentPayload.value)
             }
         )
     }
