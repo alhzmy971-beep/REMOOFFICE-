@@ -5,6 +5,30 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=4.0, user-scalable=yes" />
 <title>REMOOFFICE محرر</title>
 <style>
+
+  /* Bundled fonts: no dependency on device-installed fonts. */
+  @font-face {
+    font-family: 'REMOO Noto Sans Arabic';
+    src: url('fonts/NotoSansArabic-VF.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'REMOO Noto Sans';
+    src: url('fonts/NotoSans-VF.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'REMOO Noto Serif';
+    src: url('fonts/NotoSerif-VF.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+  }
+
   :root {
     --page-width: 210mm;
     --page-min-height: 297mm;
@@ -26,7 +50,7 @@
     margin: 0;
     padding: 0;
     background-color: #E8ECF2;
-    font-family: 'Arial', 'Tahoma', sans-serif;
+    font-family: 'REMOO Noto Sans Arabic', 'REMOO Noto Sans', Arial, sans-serif;
     -webkit-tap-highlight-color: transparent;
   }
 
