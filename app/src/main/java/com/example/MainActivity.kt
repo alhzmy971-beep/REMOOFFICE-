@@ -3,6 +3,7 @@ package com.example
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -12,6 +13,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceRequest
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -112,6 +114,13 @@ import java.io.File
 private enum class AppScreen {
     SPLASH, HOME, EDITOR
 }
+
+private fun isTrustedEditorUrl(uri: Uri?): Boolean =
+    uri != null &&
+        uri.scheme.equals("file", ignoreCase = true) &&
+        uri.authority.isNullOrEmpty() &&
+        uri.path == "/android_asset/editor.html" &&
+        uri.query == null
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -507,13 +516,52 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             settings.allowFileAccessFromFileURLs = false
                             settings.allowUniversalAccessFromFileURLs = false
                             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                            settings.blockNetworkLoads = true
+                            settings.javaScriptCanOpenWindowsAutomatically = false
+                            settings.setSupportMultipleWindows(false)
                             settings.setSupportZoom(true)
                             settings.builtInZoomControls = true
                             settings.displayZoomControls = false
                             webChromeClient = WebChromeClient()
                             webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView?,
+                                    request: WebResourceRequest
+                                ): Boolean {
+                                    val uri = request.url
+                                    if (!request.isForMainFrame) return true
+                                    if (isTrustedEditorUrl(uri)) return false
+
+                                    val scheme = uri.scheme?.lowercase()
+                                    if ((scheme == "https" || scheme == "http") &&
+                                        !uri.host.isNullOrBlank() && uri.userInfo == null
+                                    ) {
+                                        runCatching {
+                                            ctx.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                        }
+                                    }
+                                    return true
+                                }
+
+                                @Suppress("DEPRECATION")
+                                override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                                    val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull()
+                                        ?: return true
+                                    if (isTrustedEditorUrl(uri)) return false
+                                    val scheme = uri.scheme?.lowercase()
+                                    if ((scheme == "https" || scheme == "http") &&
+                                        !uri.host.isNullOrBlank() && uri.userInfo == null
+                                    ) {
+                                        runCatching {
+                                            ctx.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                        }
+                                    }
+                                    return true
+                                }
+
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
+                                    if (!isTrustedEditorUrl(runCatching { Uri.parse(url.orEmpty()) }.getOrNull())) return
                                     EditorCommands.setDocumentPayload(
                                         view,
                                         documentPayload.bodyHtml,

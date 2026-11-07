@@ -23,8 +23,15 @@ class EditorJsBridge(
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private companion object {
+        const val MAX_MESSAGE_CHARS = 3_000_000
+        const val MAX_HTML_CHARS = 1_000_000
+        const val MAX_TEXT_CHARS = 100_000
+    }
+
     @JavascriptInterface
     fun onSelectionChanged(json: String) {
+        if (json.length > 64_000) return
         try {
             val obj = JSONObject(json)
             val state = EditorSelectionState(
@@ -49,7 +56,7 @@ class EditorJsBridge(
                 charCount = obj.optInt("charCount", 0),
                 paragraphCount = obj.optInt("paragraphCount", 0),
                 pageCount = obj.optInt("pageCount", 1),
-                selectedText = obj.optString("selectedText", "")
+                selectedText = obj.optString("selectedText", "").take(MAX_TEXT_CHARS)
             )
             mainHandler.post { onStateUpdated(state) }
         } catch (_: Exception) {
@@ -58,21 +65,27 @@ class EditorJsBridge(
 
     @JavascriptInterface
     fun onContentChanged(jsonPayload: String) {
+        if (jsonPayload.length > MAX_MESSAGE_CHARS) return
         try {
             val obj = JSONObject(jsonPayload)
             val body = obj.optString("bodyHtml", "<p><br></p>")
             val header = obj.optString("headerHtml", "")
             val footer = obj.optString("footerHtml", "")
+            if (body.length > MAX_HTML_CHARS || header.length > MAX_HTML_CHARS || footer.length > MAX_HTML_CHARS) return
             mainHandler.post { onContentUpdated(body, header, footer) }
-        } catch (_: Exception) {
-            mainHandler.post { onContentUpdated(jsonPayload, "", "") }
-        }
+        } catch (_: Exception) { return }
     }
 
     @JavascriptInterface
     fun onTrackedChange(json: String) {
+        if (json.length > 256_000) return
         try {
             val obj = JSONObject(json)
+            val changeType = obj.optString("type", "INSERT")
+            val status = obj.optString("status", "PENDING")
+            val id = obj.optString("id", "")
+            if (id.isBlank() || id.length > 256 || changeType !in setOf("INSERT", "DELETE", "FORMAT") ||
+                status !in setOf("PENDING", "ACCEPTED", "REJECTED")) return
             val anchorObj = obj.optJSONObject("anchor")
             val anchor = anchorObj?.let {
                 DocumentAnchor(
@@ -83,8 +96,8 @@ class EditorJsBridge(
                 )
             }
             val change = TrackedChange(
-                id = obj.optString("id", ""),
-                type = obj.optString("type", "INSERT"),
+                id = id,
+                type = changeType,
                 elementId = obj.optString("elementId", ""),
                 anchor = anchor,
                 oldText = obj.optString("oldText", ""),
@@ -103,10 +116,12 @@ class EditorJsBridge(
 
     @JavascriptInterface
     fun onCommentAnchorCreated(json: String) {
+        if (json.length > 128_000) return
         try {
             val obj = JSONObject(json)
             val commentId = obj.optString("commentId", "")
             val quote = obj.optString("quote", "")
+            if (commentId.isBlank() || commentId.length > 256 || quote.length > MAX_TEXT_CHARS) return
             val anchorObj = obj.optJSONObject("anchor")
             val anchor = anchorObj?.let {
                 DocumentAnchor(
