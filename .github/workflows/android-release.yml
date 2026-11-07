@@ -37,9 +37,15 @@ jobs:
       - name: Decode release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
         run: |
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > my-upload-key.jks
+          encoded="$(printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]')"
+          case "$encoded" in
+            KEYSTORE_BASE64=*) encoded="${encoded#KEYSTORE_BASE64=}" ;;
+          esac
+          printf '%s' "$encoded" | base64 --decode > my-upload-key.jks
           chmod 600 my-upload-key.jks
+          keytool -list -keystore my-upload-key.jks -storetype PKCS12 -storepass "$STORE_PASSWORD" -alias upload >/dev/null
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
       - name: Build signed release APK and bundle
