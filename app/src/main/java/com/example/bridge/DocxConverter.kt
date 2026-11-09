@@ -303,6 +303,12 @@ object DocxConverter {
         val document = XWPFDocument(inputStream)
         val sb = StringBuilder()
 
+        val pgSz = document.document.body.sectPr?.pgSz
+        val pgMar = document.document.body.sectPr?.pgMar
+        
+        // Convert twips to mm (1 twip = 1/1440 inch, 1 inch = 25.4 mm)
+        val twipsToMm = 25.4f / 1440f
+        
         var paragraphCount = 0
         var tableCount = 0
         var imageCount = 0
@@ -392,12 +398,29 @@ object DocxConverter {
         )
 
         document.close()
+        
         val bodyHtml = HtmlSanitizer.sanitizeHtml(sb.toString().ifBlank { "<p><br></p>" })
+        
+        val marginMm = pgMar?.let { 
+            (it.top?.let { t -> if (t is BigInteger) t.toFloat() else 0f } ?: 1440f) * twipsToMm
+        } ?: 25.4f
+
+        val widthMm = pgSz?.w?.let { if (it is BigInteger) it.toFloat() else 0f }?.let { it * twipsToMm } ?: 210f
+        val heightMm = pgSz?.h?.let { if (it is BigInteger) it.toFloat() else 0f }?.let { it * twipsToMm } ?: 297f
+        
+        val orientation = if (widthMm > heightMm) PageOrientation.LANDSCAPE else PageOrientation.PORTRAIT
+        
         return DocumentPayload(
             bodyHtml = bodyHtml,
             headerHtml = headerHtml,
             footerHtml = footerHtml,
             notes = notes,
+            pageConfig = PageConfig(
+                marginPreset = MarginPreset.CUSTOM,
+                customMarginMm = marginMm.toInt(),
+                orientation = orientation,
+                size = if (widthMm > 250) PageSize.LEGAL else if (widthMm > 210) PageSize.LETTER else PageSize.A4
+            ),
             importReport = report
         )
     }
