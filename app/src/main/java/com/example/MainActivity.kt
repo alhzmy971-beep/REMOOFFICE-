@@ -246,8 +246,8 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     val isTxt = mime.contains("text/plain", ignoreCase = true) || lowerName.endsWith(".txt")
                     val isRtf = mime.contains("rtf", ignoreCase = true) || lowerName.endsWith(".rtf")
                     val isHtml = mime.contains("html", ignoreCase = true) || lowerName.endsWith(".html") || lowerName.endsWith(".htm")
-                    val isLegacyDoc = lowerName.endsWith(".doc") && !lowerName.endsWith(".docx")
-                    val isWord = isLegacyDoc || lowerName.endsWith(".docx") || lowerName.endsWith(".docm") || lowerName.endsWith(".dotx") || lowerName.endsWith(".dotm") || mime.contains("word", ignoreCase = true) || mime.contains("msword", ignoreCase = true)
+                    val isLegacyDoc = (lowerName.endsWith(".doc") || lowerName.endsWith(".dot")) && !lowerName.endsWith(".docx")
+                    val isWord = isLegacyDoc || lowerName.endsWith(".docx") || lowerName.endsWith(".docm") || lowerName.endsWith(".dot") || lowerName.endsWith(".dotx") || lowerName.endsWith(".dotm") || mime.contains("word", ignoreCase = true) || mime.contains("msword", ignoreCase = true)
 
                     val importedPayload = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use { input ->
@@ -363,6 +363,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
                             "application/vnd.ms-word.template.macroEnabled.12",
                             "application/msword",
+                            "application/x-dot",
                             "application/pdf",
                             "application/rtf",
                             "text/rtf",
@@ -507,6 +508,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                         "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
                                         "application/vnd.ms-word.template.macroEnabled.12",
                                         "application/msword",
+                                        "application/x-dot",
                                         "application/pdf",
                                         "application/rtf",
                                         "text/rtf",
@@ -761,6 +763,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                         "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
                                         "application/vnd.ms-word.template.macroEnabled.12",
                                         "application/msword",
+                                        "application/x-dot",
                                         "application/pdf",
                                         "application/rtf",
                                         "text/rtf",
