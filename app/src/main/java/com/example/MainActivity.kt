@@ -257,6 +257,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
 
                     val importedPayload = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use { input ->
+                            val extension = fileName.substringAfterLast(".", "")
                             when {
                                 isPdf -> com.example.model.DocumentPayload(
                                     bodyHtml = PdfImporter.pdfToHtml(context, input)
@@ -264,7 +265,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 isTxt -> com.example.model.DocumentPayload(
                                     bodyHtml = DocxConverter.txtToHtml(input)
                                 )
-                                else -> DocxConverter.docxToPayload(input)
+                                else -> DocxConverter.loadDocument(input, extension)
                             }
                         } ?: com.example.model.DocumentPayload()
                     }

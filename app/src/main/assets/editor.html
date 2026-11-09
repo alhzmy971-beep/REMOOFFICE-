@@ -402,6 +402,17 @@
     cursor: nwse-resize;
   }
 
+  .table-col-resizer, .table-row-resizer {
+    position: absolute;
+    z-index: 1002;
+    background: transparent;
+    touch-action: none;
+  }
+  .table-col-resizer { width: 12px; cursor: col-resize; }
+  .table-row-resizer { height: 12px; cursor: row-resize; }
+  .table-cell-selected { outline: 2px solid rgba(26, 86, 219, .85); outline-offset: -2px; }
+  .row-number, .col-letter { touch-action: none; }
+
   .selection-overlay {
     position: absolute;
     background: rgba(26, 86, 219, 0.1);
@@ -706,6 +717,237 @@
   function hideTableMenu() {
       document.getElementById('tableContextMenu').style.display = 'none';
   }
+
+  // Mobile table controls: range selection, row/column movement and touch resizing.
+  const selectedTableCells = [];
+  let activeTableContext = null;
+  let activeCellRangeDrag = null;
+
+  function setSelectedCells(cells, syncNativeSelection = false) {
+    selectedTableCells.forEach(cell => cell.classList.remove('table-cell-selected'));
+    selectedTableCells.splice(0, selectedTableCells.length, ...Array.from(new Set(cells)).filter(cell => cell && cell.isConnected));
+    selectedTableCells.forEach(cell => cell.classList.add('table-cell-selected'));
+    lastSelectedCell = selectedTableCells[0] || null;
+    if (syncNativeSelection && lastSelectedCell) {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(lastSelectedCell);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    ControlManager.update();
+  }
+
+  function tableCellsInRectangle(table, firstCell, lastCell) {
+    if (!table || !firstCell || !lastCell || getClosestTag(firstCell, 'table') !== table || getClosestTag(lastCell, 'table') !== table) return [];
+    const rows = Array.from(table.rows);
+    const firstRow = rows.indexOf(firstCell.parentElement);
+    const lastRow = rows.indexOf(lastCell.parentElement);
+    if (firstRow < 0 || lastRow < 0) return [];
+    const top = Math.min(firstRow, lastRow);
+    const bottom = Math.max(firstRow, lastRow);
+    const left = Math.min(firstCell.cellIndex, lastCell.cellIndex);
+    const right = Math.max(firstCell.cellIndex, lastCell.cellIndex);
+    const cells = [];
+    for (let rowIndex = top; rowIndex <= bottom; rowIndex++) {
+      for (let colIndex = left; colIndex <= right; colIndex++) {
+        const cell = rows[rowIndex].cells[colIndex];
+        if (cell) cells.push(cell);
+      }
+    }
+    return cells;
+  }
+
+  const originalControlUpdate = ControlManager.update.bind(ControlManager);
+  ControlManager.update = function() {
+    const first = selectedTableCells.find(cell => cell.isConnected);
+    if (first) {
+      floatingControls.innerHTML = '';
+      this.renderTableControls(first);
+      return;
+    }
+    originalControlUpdate();
+  };
+
+  const originalRenderTableControls = ControlManager.renderTableControls.bind(ControlManager);
+  ControlManager.renderTableControls = function(cell) {
+    originalRenderTableControls(cell);
+    const table = getClosestTag(cell, 'table');
+    if (!table) return;
+    const tableRect = table.getBoundingClientRect();
+    const sx = window.scrollX;
+    const sy = window.scrollY;
+    const firstRow = table.rows[0];
+    if (firstRow) {
+      for (let col = 0; col < firstRow.cells.length; col++) {
+        const colRect = firstRow.cells[col].getBoundingClientRect();
+        const handle = document.createElement('div');
+        handle.className = 'table-col-resizer';
+        handle.style.left = (colRect.right + sx - 6) + 'px';
+        handle.style.top = (tableRect.top + sy) + 'px';
+        handle.style.height = Math.max(24, tableRect.height) + 'px';
+        handle.setAttribute('aria-label', 'اسحب لتغيير عرض العمود');
+        handle.addEventListener('pointerdown', e => beginTableResize(e, table, 'column', col));
+        floatingControls.appendChild(handle);
+      }
+    }
+    Array.from(table.rows).forEach((row, index) => {
+      const rowRect = row.getBoundingClientRect();
+      const handle = document.createElement('div');
+      handle.className = 'table-row-resizer';
+      handle.style.left = (tableRect.left + sx) + 'px';
+      handle.style.top = (rowRect.bottom + sy - 6) + 'px';
+      handle.style.width = Math.max(24, tableRect.width) + 'px';
+      handle.setAttribute('aria-label', 'اسحب لتغيير ارتفاع الصف');
+      handle.addEventListener('pointerdown', e => beginTableResize(e, table, 'row', index));
+      floatingControls.appendChild(handle);
+    });
+  };
+
+  function beginTableResize(event, table, kind, index) {
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    try { handle.setPointerCapture(event.pointerId); } catch (_) {}
+    const start = kind === 'column' ? event.clientX : event.clientY;
+    const target = kind === 'column' ? table.rows[0]?.cells[index] : table.rows[index];
+    if (!target) return;
+    const initial = kind === 'column' ? target.getBoundingClientRect().width : target.getBoundingClientRect().height;
+    const move = e => {
+      if (e.pointerId !== event.pointerId) return;
+      e.preventDefault();
+      const current = kind === 'column' ? e.clientX : e.clientY;
+      const size = Math.max(kind === 'column' ? 28 : 20, initial + current - start);
+      if (kind === 'column') {
+        Array.from(table.rows).forEach(row => { if (row.cells[index]) row.cells[index].style.width = size + 'px'; });
+      } else {
+        table.rows[index].style.height = size + 'px';
+      }
+    };
+    const finish = e => {
+      if (e.pointerId !== event.pointerId) return;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      document.body.style.userSelect = '';
+      ControlManager.update();
+      notifyContentChanged();
+    };
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  }
+
+  selectRow = function(table, index) {
+    const row = table && table.rows[index];
+    if (!row) return;
+    activeTableContext = { type: 'row', index, table };
+    setSelectedCells(Array.from(row.cells), true);
+    notifySelectionState();
+  };
+
+  selectColumn = function(table, index) {
+    if (!table) return;
+    const cells = Array.from(table.rows).map(row => row.cells[index]).filter(Boolean);
+    if (!cells.length) return;
+    activeTableContext = { type: 'col', index, table };
+    setSelectedCells(cells, true);
+    notifySelectionState();
+  };
+
+  function moveActiveTableRow(delta) {
+    if (!activeTableContext || activeTableContext.type !== 'row') return;
+    const { table } = activeTableContext;
+    const rows = Array.from(table.rows);
+    const from = activeTableContext.index;
+    const to = from + delta;
+    if (to < 0 || to >= rows.length || rows[from].parentNode !== rows[to].parentNode) return;
+    const moving = rows[from];
+    const target = rows[to];
+    if (delta < 0) moving.parentNode.insertBefore(moving, target);
+    else moving.parentNode.insertBefore(moving, target.nextSibling);
+    activeTableContext.index = to;
+    setSelectedCells(Array.from(moving.cells), true);
+    notifyContentChanged();
+  }
+
+  function moveActiveTableColumn(delta) {
+    if (!activeTableContext || activeTableContext.type !== 'col') return;
+    const { table } = activeTableContext;
+    const from = activeTableContext.index;
+    const to = from + delta;
+    const firstRow = table.rows[0];
+    if (!firstRow || to < 0 || to >= firstRow.cells.length) return;
+    Array.from(table.rows).forEach(row => {
+      if (!row.cells[from] || !row.cells[to]) return;
+      const moving = row.cells[from];
+      if (delta < 0) row.insertBefore(moving, row.cells[to]);
+      else row.insertBefore(moving, row.cells[to].nextSibling);
+    });
+    activeTableContext.index = to;
+    selectColumn(table, to);
+    notifyContentChanged();
+  }
+
+  showTableMenu = function(x, y, type, index, table) {
+    activeTableContext = { type, index, table };
+    const menu = document.getElementById('tableContextMenu');
+    menu.style.display = 'flex';
+    menu.style.top = y + 'px';
+    menu.style.left = x + 'px';
+    menu.innerHTML = type === 'row' ? `
+      <button onclick="window.editorApi.addTableRow();document.getElementById('tableContextMenu').style.display='none';">➕ إضافة صف لأسفل</button>
+      <button onclick="window.editorApi.moveTableRow(-1);document.getElementById('tableContextMenu').style.display='none';">↑ نقل الصف لأعلى</button>
+      <button onclick="window.editorApi.moveTableRow(1);document.getElementById('tableContextMenu').style.display='none';">↓ نقل الصف لأسفل</button>
+      <button class="delete" onclick="window.editorApi.deleteTableRow();document.getElementById('tableContextMenu').style.display='none';">🗑️ حذف الصف</button>
+    ` : `
+      <button onclick="window.editorApi.addTableCol();document.getElementById('tableContextMenu').style.display='none';">➕ إضافة عمود</button>
+      <button onclick="window.editorApi.moveTableColumn(-1);document.getElementById('tableContextMenu').style.display='none';">← نقل العمود لليسار</button>
+      <button onclick="window.editorApi.moveTableColumn(1);document.getElementById('tableContextMenu').style.display='none';">→ نقل العمود لليمين</button>
+      <button class="delete" onclick="window.editorApi.deleteTableCol();document.getElementById('tableContextMenu').style.display='none';">🗑️ حذف العمود</button>
+    `;
+    setTimeout(() => document.addEventListener('click', function hide(e) {
+      if (!menu.contains(e.target)) { menu.style.display = 'none'; document.removeEventListener('click', hide); }
+    }), 10);
+  };
+
+  editor.addEventListener('pointerdown', event => {
+    if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+    const cell = event.target.closest && event.target.closest('td, th');
+    if (!cell || !editor.contains(cell)) return;
+    if (!selectedTableCells.includes(cell)) setSelectedCells([]);
+    lastSelectedCell = cell;
+    activeCellRangeDrag = { pointerId: event.pointerId, table: getClosestTag(cell, 'table'), start: cell, last: cell, moved: false, x: event.clientX, y: event.clientY };
+    try { editor.setPointerCapture(event.pointerId); } catch (_) {}
+  });
+
+  editor.addEventListener('pointermove', event => {
+    const drag = activeCellRangeDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const cell = document.elementFromPoint(event.clientX, event.clientY)?.closest('td, th');
+    if (!cell || getClosestTag(cell, 'table') !== drag.table) return;
+    const crossedCell = cell !== drag.start;
+    const moved = Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 8;
+    if (crossedCell && moved) {
+      drag.moved = true;
+      drag.last = cell;
+      event.preventDefault();
+      setSelectedCells(tableCellsInRectangle(drag.table, drag.start, cell));
+    }
+  }, { passive: false });
+
+  const finishCellRangeDrag = event => {
+    if (!activeCellRangeDrag || activeCellRangeDrag.pointerId !== event.pointerId) return;
+    const completed = activeCellRangeDrag.moved;
+    activeCellRangeDrag = null;
+    if (completed) {
+      notifySelectionState();
+      notifyContentChanged();
+    }
+  };
+  window.addEventListener('pointerup', finishCellRangeDrag);
+  window.addEventListener('pointercancel', finishCellRangeDrag);
 
   let suppressTracking = false;
   let trackChangesEnabled = false;
@@ -1438,6 +1680,15 @@
       notifySelectionState();
     }
   };
+
+  window.editorApi.setCellBackground = hex => {
+    const activeCell = getClosestTag(window.getSelection()?.anchorNode, 'td') || lastSelectedCell;
+    const cells = selectedTableCells.length ? selectedTableCells : [activeCell].filter(Boolean);
+    cells.forEach(cell => { cell.style.backgroundColor = hex; });
+    notifyContentChanged();
+  };
+  window.editorApi.moveTableRow = delta => moveActiveTableRow(Number(delta) || 0);
+  window.editorApi.moveTableColumn = delta => moveActiveTableColumn(Number(delta) || 0);
 
   // --- Implementations ---
   let elementIdCounter = 1;
