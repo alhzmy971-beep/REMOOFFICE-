@@ -6,15 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
-import java.io.FileOutputStream
-import java.util.concurrent.TimeUnit
-import java.util.zip.ZipFile
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -29,16 +21,17 @@ object OnlinePdfToWordService : PdfConversionProvider {
     private const val KEY_ALIAS = "remoffice_pdf_key"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
 
-    private const val DEFAULT_API_KEY = ""
+    private var activeProvider: PdfConversionProvider = CloudConvertPdfProvider()
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(120, TimeUnit.SECONDS)
-        .build()
+    override val providerId: String
+        get() = activeProvider.providerId
 
-    @Volatile
-    private var isCancelled = false
+    override val displayName: String
+        get() = activeProvider.displayName
+
+    fun setProvider(provider: PdfConversionProvider) {
+        activeProvider = provider
+    }
 
     fun isOnlineConversionEnabled(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -52,11 +45,8 @@ object OnlinePdfToWordService : PdfConversionProvider {
 
     fun getApiKey(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val encoded = prefs.getString(KEY_API, null)
-        if (encoded.isNullOrEmpty()) {
-            return DEFAULT_API_KEY
-        }
-        val encodedIv = prefs.getString(KEY_IV, null) ?: return DEFAULT_API_KEY
+        val encoded = prefs.getString(KEY_API, null) ?: return ""
+        val encodedIv = prefs.getString(KEY_IV, null) ?: return ""
         return try {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(
@@ -66,7 +56,7 @@ object OnlinePdfToWordService : PdfConversionProvider {
             )
             String(cipher.doFinal(Base64.decode(encoded, Base64.NO_WRAP)), Charsets.UTF_8).trim()
         } catch (_: Exception) {
-            DEFAULT_API_KEY
+            ""
         }
     }
 
@@ -103,7 +93,11 @@ object OnlinePdfToWordService : PdfConversionProvider {
     }
 
     override suspend fun cancelConversion() {
-        isCancelled = true
+        activeProvider.cancelConversion()
+    }
+
+    override suspend fun deleteRemoteFileIfSupported(jobIdOrUrl: String, apiKey: String): Boolean {
+        return activeProvider.deleteRemoteFileIfSupported(jobIdOrUrl, apiKey)
     }
 
     override suspend fun convertPdfToDocx(
@@ -112,118 +106,29 @@ object OnlinePdfToWordService : PdfConversionProvider {
         apiKey: String,
         onProgress: (Int, String) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
-        isCancelled = false
         if (!isOnlineConversionEnabled(context)) {
-            return@withContext Result.failure(IllegalStateException("تحويل PDF عبر الإنترنت معطل من الإعدادات."))
+            return@withContext Result.failure(
+                IllegalStateException("خدمة تحويل PDF عبر الإنترنت معطلة من إعدادات التطبيق. يرجى تفعيلها أولاً.")
+            )
         }
         if (!pdfFile.exists() || pdfFile.length() == 0L) {
-            return@withContext Result.failure(IllegalArgumentException("ملف PDF غير موجود أو فارغ."))
+            return@withContext Result.failure(
+                IllegalArgumentException("ملف PDF غير موجود أو فارغ.")
+            )
         }
         if (pdfFile.length() > 30 * 1024 * 1024) {
-            return@withContext Result.failure(IllegalArgumentException("حجم الملف يتجاوز الحد الأقصى المسموح به (30 ميجابايت)."))
+            return@withContext Result.failure(
+                IllegalArgumentException("حجم الملف يتجاوز الحد الأقصى المسموح به للرفع (30 ميجابايت).")
+            )
         }
 
-        try {
-            onProgress(10, "تجهيز الملف للرفع...")
-            if (isCancelled) return@withContext Result.failure(Exception("تم إلغاء العملية."))
-
-            val effectiveKey = apiKey.ifBlank { getApiKey(context) }
-            if (effectiveKey.isBlank()) {
-                return@withContext Result.failure(IllegalStateException("مفتاح API الخاص بمزود التحويل مطلوب."))
-            }
-
-            onProgress(25, "رفع ملف PDF إلى خدمة التحويل...")
-            if (isCancelled) return@withContext Result.failure(Exception("تم إلغاء العملية."))
-
-            val requestBody = MultipartBody.Builder()
-                .setType(MultipartBody.FORM)
-                .addFormDataPart(
-                    "file",
-                    pdfFile.name,
-                    pdfFile.asRequestBody("application/pdf".toMediaType())
-                )
-                .build()
-
-            val request = Request.Builder()
-                .url("https://api.cloudconvert.com/v2/import/upload")
-                .header("Authorization", "Bearer $effectiveKey")
-                .header("X-API-Key", effectiveKey)
-                .post(requestBody)
-                .build()
-
-            onProgress(50, "جاري تحويل PDF إلى Word (DOCX)...")
-            if (isCancelled) return@withContext Result.failure(Exception("تم إلغاء العملية."))
-
-            val response = try {
-                client.newCall(request).execute()
-            } catch (e: Exception) {
-                return@withContext convertLocallyAsFallback(context, pdfFile, onProgress)
-            }
-
-            response.use { resp ->
-                if (!resp.isSuccessful) {
-                    return@withContext convertLocallyAsFallback(context, pdfFile, onProgress)
-                }
-
-                onProgress(80, "تنزيل ملف Word الناتج...")
-                if (isCancelled) return@withContext Result.failure(Exception("تم إلغاء العملية."))
-
-                val body = resp.body ?: return@withContext Result.failure(Exception("استجابة فارغة من خادم التحويل."))
-                val outputFile = File(context.cacheDir, "${pdfFile.nameWithoutExtension}_converted.docx")
-                FileOutputStream(outputFile).use { fos ->
-                    body.byteStream().copyTo(fos)
-                }
-
-                if (!isValidDocx(outputFile)) {
-                    outputFile.delete()
-                    return@withContext convertLocallyAsFallback(context, pdfFile, onProgress)
-                }
-
-                onProgress(100, "اكتمل التحويل والاستيراد بنجاح.")
-                Result.success(outputFile)
-            }
-        } catch (e: Exception) {
-            if (isCancelled) {
-                Result.failure(Exception("تم إلغاء العملية."))
-            } else {
-                convertLocallyAsFallback(context, pdfFile, onProgress)
-            }
+        val effectiveKey = apiKey.ifBlank { getApiKey(context) }
+        if (effectiveKey.isBlank()) {
+            return@withContext Result.failure(
+                IllegalStateException("مفتاح API الخاص بمزود التحويل غير محدد. يرجى إدخال مفتاح API في الإعدادات.")
+            )
         }
-    }
 
-    private suspend fun convertLocallyAsFallback(
-        context: Context,
-        pdfFile: File,
-        onProgress: (Int, String) -> Unit
-    ): Result<File> = withContext(Dispatchers.IO) {
-        try {
-            onProgress(40, "استخراج النصوص والتنسيقات من PDF محلياً...")
-            val pdfHtml = context.contentResolver.openInputStream(android.net.Uri.fromFile(pdfFile))?.use { input ->
-                PdfImporter.pdfToHtml(context, input)
-            } ?: "<p>مستند PDF مستخرج</p>"
-
-            onProgress(70, "توليد ملف DOCX قابل للتحرير...")
-            val payload = com.example.model.DocumentPayload(bodyHtml = pdfHtml)
-            val outputFile = File(context.cacheDir, "${pdfFile.nameWithoutExtension}_converted.docx")
-            FileOutputStream(outputFile).use { out ->
-                DocxConverter.htmlToDocx(payload, out)
-            }
-
-            onProgress(100, "اكتمل التحويل بنجاح.")
-            Result.success(outputFile)
-        } catch (e: Exception) {
-            Result.failure(Exception("فشل تحويل PDF: ${e.localizedMessage}"))
-        }
-    }
-
-    private fun isValidDocx(file: File): Boolean {
-        if (!file.exists() || file.length() < 100) return false
-        return try {
-            ZipFile(file).use { zip ->
-                zip.getEntry("word/document.xml") != null
-            }
-        } catch (_: Exception) {
-            false
-        }
+        activeProvider.convertPdfToDocx(context, pdfFile, effectiveKey, onProgress)
     }
 }

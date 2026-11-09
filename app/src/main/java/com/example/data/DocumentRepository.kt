@@ -39,8 +39,10 @@ data class SavedDocument(
     }
 }
 
-class DocumentRepository(context: Context) {
-    private val docsDir = File(context.filesDir, "documents").apply { mkdirs() }
+class DocumentRepository(baseDir: File) {
+    constructor(context: Context) : this(context.filesDir)
+
+    private val docsDir = File(baseDir, "documents").apply { mkdirs() }
     private val indexFile = File(docsDir, "documents_index.json")
     private val writeLock = Any()
 

@@ -19,12 +19,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
 import java.io.ByteArrayInputStream
+import java.io.File
 
-@RunWith(RobolectricTestRunner::class)
 class DocumentRepositoryAndSecurityTest {
 
     @Test
@@ -56,8 +53,8 @@ class DocumentRepositoryAndSecurityTest {
 
     @Test
     fun documentRepository_savesAndRestoresFullPayload() {
-        val context = RuntimeEnvironment.getApplication()
-        val repo = DocumentRepository(context)
+        val testDir = File("build/tmp/test_docs_1").apply { deleteRecursively(); mkdirs() }
+        val repo = DocumentRepository(testDir)
 
         val payload = DocumentPayload(
             bodyHtml = "<p>محتوى تجريبي</p>",
@@ -128,7 +125,8 @@ class DocumentRepositoryAndSecurityTest {
 
     @Test
     fun documentRepository_handles50PageDocumentPerformance() {
-        val repo = DocumentRepository(RuntimeEnvironment.getApplication())
+        val testDir = File("build/tmp/test_docs_2").apply { deleteRecursively(); mkdirs() }
+        val repo = DocumentRepository(testDir)
         val largeBody = buildString {
             repeat(500) { idx ->
                 append("<p>فقرة رقم $idx تحتوي على نص عربي لاختبار الأداء والحفظ المحلي.</p>")
@@ -219,8 +217,8 @@ class DocumentRepositoryAndSecurityTest {
 
     @Test
     fun documentRepository_savesAndRestoresAnchorsAndRepliesAndExtendedStyles() {
-        val context = RuntimeEnvironment.getApplication()
-        val repo = DocumentRepository(context)
+        val testDir = File("build/tmp/test_docs_3").apply { deleteRecursively(); mkdirs() }
+        val repo = DocumentRepository(testDir)
 
         val anchor = com.example.model.DocumentAnchor("el_100", 2, 10, "النص المقتبس")
         val payload = DocumentPayload(

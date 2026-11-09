@@ -40,6 +40,8 @@ import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Settings
@@ -83,6 +85,7 @@ import androidx.compose.material3.TextButton
 import com.example.R
 import com.example.data.SavedDocument
 import com.example.model.SortOrder
+import com.example.bridge.OnlinePdfToWordService
 import java.util.Locale
 import kotlinx.coroutines.launch
 
@@ -91,6 +94,7 @@ fun HomeHubScreen(
     documents: List<SavedDocument>,
     onCreateNewDocument: () -> Unit,
     onImportDocument: () -> Unit,
+    onConvertPdfOnline: () -> Unit = {},
     onOpenSavedDocument: (SavedDocument) -> Unit,
     onDeleteSavedDocument: (SavedDocument) -> Unit
 ) {
@@ -98,6 +102,11 @@ fun HomeHubScreen(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var autoSaveEnabled by remember { mutableStateOf(true) }
+    var onlineConversionEnabled by remember {
+        mutableStateOf(OnlinePdfToWordService.isOnlineConversionEnabled(context))
+    }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+    var apiKeyInput by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
     var sortOrder by remember { mutableStateOf(SortOrder.DATE_DESC) }
     var docToDelete by remember { mutableStateOf<SavedDocument?>(null) }
@@ -196,6 +205,46 @@ fun HomeHubScreen(
                             onCheckedChange = { autoSaveEnabled = it }
                         )
                     },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+
+                NavigationDrawerItem(
+                    label = { Text("تحويل PDF عبر الإنترنت") },
+                    selected = false,
+                    onClick = {
+                        val next = !onlineConversionEnabled
+                        onlineConversionEnabled = next
+                        OnlinePdfToWordService.setOnlineConversionEnabled(context, next)
+                    },
+                    icon = { Icon(Icons.Default.Cloud, contentDescription = null) },
+                    badge = {
+                        Switch(
+                            checked = onlineConversionEnabled,
+                            onCheckedChange = {
+                                onlineConversionEnabled = it
+                                OnlinePdfToWordService.setOnlineConversionEnabled(context, it)
+                            }
+                        )
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+
+                NavigationDrawerItem(
+                    label = {
+                        Column {
+                            Text("مفتاح تحويل PDF (CloudConvert)", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (OnlinePdfToWordService.getApiKey(context).isNotBlank()) "تم تعيين المفتاح (مشفر محلياً)" else "لم يتم تعيين المفتاح بعد",
+                                fontSize = 11.sp
+                            )
+                        }
+                    },
+                    selected = false,
+                    onClick = {
+                        apiKeyInput = OnlinePdfToWordService.getApiKey(context)
+                        showApiKeyDialog = true
+                    },
+                    icon = { Icon(Icons.Default.Key, contentDescription = null) },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
 
@@ -448,7 +497,74 @@ fun HomeHubScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 3- تحويل PDF إلى Word عبر الإنترنت (Cloud / Online)
+                Card(
+                    onClick = onConvertPdfOnline,
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .testTag("online_pdf_convert_button")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Brush.linearGradient(listOf(Color(0xFF2563EB), Color(0xFF4F46E5)))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Cloud,
+                                contentDescription = "تحويل PDF إلى Word",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "تحويل PDF إلى Word عبر الإنترنت",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    color = Color(0xFFEFF6FF),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = "عالي الدقة",
+                                        color = Color(0xFF1D4ED8),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "تحويل مستندات PDF إلى ملفات Word قابلة للتحرير بالكامل مع حفظ النصوص والجداول",
+                                fontSize = 11.sp,
+                                color = Color(0xFF64748B),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Search & Sort Bar
                 OutlinedTextField(
@@ -645,6 +761,57 @@ fun HomeHubScreen(
                 }
             },
             confirmButton = { TextButton(onClick = { showSupportDialog = false }) { Text("إغلاق") } }
+        )
+    }
+
+    if (showApiKeyDialog) {
+        AlertDialog(
+            onDismissRequest = { showApiKeyDialog = false },
+            title = { Text("مفتاح تحويل PDF (CloudConvert)") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "أدخل مفتاح API الخاص بخدمة CloudConvert لتمكين تحويل PDF إلى مستندات Word عبر الإنترنت بدقة عالية مع حفظ الجداول والتنسيقات.",
+                        fontSize = 13.sp
+                    )
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = { apiKeyInput = it },
+                        label = { Text("CloudConvert API Key") },
+                        placeholder = { Text("الصق المفتاح هنا...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        "ملاحظة أمان: يتم تشفير هذا المفتاح محلياً باستخدام Android Keystore (AES-GCM) ولا يُحفظ في Git أو أي خادم دائم.",
+                        fontSize = 11.sp,
+                        color = Color(0xFF64748B)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        OnlinePdfToWordService.saveApiKey(context, apiKeyInput)
+                        showApiKeyDialog = false
+                    }
+                ) {
+                    Text("حفظ المفتاح")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        if (apiKeyInput.isNotBlank()) {
+                            apiKeyInput = ""
+                            OnlinePdfToWordService.saveApiKey(context, "")
+                        }
+                        showApiKeyDialog = false
+                    }
+                ) {
+                    Text("مسح / إلغاء")
+                }
+            }
         )
     }
 }

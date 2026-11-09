@@ -43,6 +43,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -51,6 +54,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -58,6 +62,12 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import com.example.bridge.OnlinePdfToWordService
+import com.example.model.DocumentImportReport
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -173,6 +183,15 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     var showStylesDialog by remember { mutableStateOf(false) }
     var showTrackedChangesPanel by remember { mutableStateOf(false) }
     var showCommentsPanel by remember { mutableStateOf(false) }
+    var pendingOnlinePdfUri by remember { mutableStateOf<Uri?>(null) }
+    var showOnlineConsentDialog by remember { mutableStateOf(false) }
+    var showOnlineKeyDialog by remember { mutableStateOf(false) }
+    var onlineKeyInput by remember { mutableStateOf("") }
+    var isOnlineConverting by remember { mutableStateOf(false) }
+    var conversionProgress by remember { mutableStateOf(0) }
+    var conversionStatusText by remember { mutableStateOf("") }
+    var showImportReportDialog by remember { mutableStateOf(false) }
+    var activeImportReport by remember { mutableStateOf<DocumentImportReport?>(null) }
 
     LaunchedEffect(currentScreen) {
         if (currentScreen == AppScreen.HOME) {
@@ -274,9 +293,105 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                         importedPayload.footerHtml
                     )
                     viewModel.showMessage("تم استيراد المستند بنجاح")
+                    if (importedPayload.importReport != null && importedPayload.importReport.unsupportedCount > 0) {
+                        activeImportReport = importedPayload.importReport
+                        showImportReportDialog = true
+                    }
                 } catch (e: Exception) {
                     viewModel.showMessage("تعذر استيراد الملف: ${e.localizedMessage}")
                 }
+            }
+        }
+    }
+
+    fun startOnlineConversion(uri: Uri) {
+        scope.launch {
+            isOnlineConverting = true
+            conversionProgress = 5
+            conversionStatusText = "قراءة ملف PDF وتجهيزه..."
+            try {
+                val fileName = getFileName(context, uri) ?: "مستند.pdf"
+                val cleanTitle = fileName.substringBeforeLast(".")
+                val tempPdf = withContext(Dispatchers.IO) {
+                    val file = java.io.File(context.cacheDir, "temp_online_upload_${System.currentTimeMillis()}.pdf")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        java.io.FileOutputStream(file).use { out -> input.copyTo(out) }
+                    }
+                    file
+                }
+
+                val convResult = OnlinePdfToWordService.convertPdfToDocx(
+                    context = context,
+                    pdfFile = tempPdf,
+                    apiKey = OnlinePdfToWordService.getApiKey(context),
+                    onProgress = { pct, status ->
+                        conversionProgress = pct
+                        conversionStatusText = status
+                    }
+                )
+
+                tempPdf.delete()
+
+                if (convResult.isSuccess) {
+                    val docxFile = convResult.getOrThrow()
+                    conversionStatusText = "استيراد وتجهيز مستند Word..."
+                    val importedPayload = withContext(Dispatchers.IO) {
+                        docxFile.inputStream().use { input ->
+                            DocxConverter.docxToPayload(input)
+                        }
+                    }
+                    docxFile.delete()
+
+                    val saved = repository.createOrUpdateDocument(
+                        id = null,
+                        title = cleanTitle,
+                        payload = importedPayload,
+                        sourceType = "PDF_CONVERTED",
+                        wordCount = selectionState.wordCount
+                    )
+                    activeDocId = saved.id
+                    activeSourceType = "PDF_CONVERTED"
+                    viewModel.setDocumentTitle(cleanTitle)
+                    viewModel.setDocumentPayload(importedPayload)
+                    currentScreen = AppScreen.EDITOR
+                    EditorCommands.setDocumentPayload(
+                        webViewRef,
+                        importedPayload.bodyHtml,
+                        importedPayload.headerHtml,
+                        importedPayload.footerHtml
+                    )
+                    if (importedPayload.importReport != null && importedPayload.importReport.unsupportedCount > 0) {
+                        activeImportReport = importedPayload.importReport
+                        showImportReportDialog = true
+                    }
+                    viewModel.showMessage("تم تحويل PDF بنجاح وفتحه كملف Word قابل للتحرير!")
+                } else {
+                    val err = convResult.exceptionOrNull()?.localizedMessage ?: "فشل التحويل"
+                    viewModel.showMessage("تعذر إتمام التحويل: $err")
+                }
+            } catch (e: Exception) {
+                viewModel.showMessage("خطأ أثناء التحويل: ${e.localizedMessage}")
+            } finally {
+                isOnlineConverting = false
+            }
+        }
+    }
+
+    val convertPdfOnlineLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            if (!OnlinePdfToWordService.isOnlineConversionEnabled(context)) {
+                viewModel.showMessage("خدمة تحويل PDF عبر الإنترنت معطلة من إعدادات التطبيق.")
+                return@rememberLauncherForActivityResult
+            }
+            pendingOnlinePdfUri = uri
+            val key = OnlinePdfToWordService.getApiKey(context)
+            if (key.isBlank()) {
+                onlineKeyInput = ""
+                showOnlineKeyDialog = true
+            } else {
+                showOnlineConsentDialog = true
             }
         }
     }
@@ -348,6 +463,9 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             "application/pdf"
                         )
                     )
+                },
+                onConvertPdfOnline = {
+                    convertPdfOnlineLauncher.launch(arrayOf("application/pdf"))
                 },
                 onOpenSavedDocument = { doc ->
                     val payload = repository.loadDocumentPayload(doc.id)
@@ -423,8 +541,53 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
         return
     }
 
+    val anyDialogOpen = showRenameDialog || showTableDialog || showHyperlinkDialog ||
+        showTextBoxDialog || showCustomMarginDialog || showFindReplaceDialog ||
+        showAiKeyDialog || showBookmarkDialog || showNoteDialog ||
+        showDocPropertiesDialog || showStylesDialog || showTrackedChangesPanel ||
+        showCommentsPanel || showSignatureDialog || showCommentDialog ||
+        showTemplatesDialog || showOnlineConsentDialog || showOnlineKeyDialog ||
+        showImportReportDialog
+
     BackHandler {
-        currentScreen = AppScreen.HOME
+        when {
+            anyDialogOpen -> {
+                showRenameDialog = false
+                showTableDialog = false
+                showHyperlinkDialog = false
+                showTextBoxDialog = false
+                showCustomMarginDialog = false
+                showFindReplaceDialog = false
+                showAiKeyDialog = false
+                showBookmarkDialog = false
+                showNoteDialog = false
+                showDocPropertiesDialog = false
+                showStylesDialog = false
+                showTrackedChangesPanel = false
+                showCommentsPanel = false
+                showSignatureDialog = false
+                showCommentDialog = false
+                showTemplatesDialog = false
+                showOnlineConsentDialog = false
+                showOnlineKeyDialog = false
+                showImportReportDialog = false
+            }
+            isReadMode -> {
+                viewModel.setReadMode(false)
+            }
+            showAiChatBox -> {
+                showAiChatBox = false
+            }
+            showTopFormattingBar -> {
+                showTopFormattingBar = false
+            }
+            currentScreen == AppScreen.EDITOR -> {
+                currentScreen = AppScreen.HOME
+            }
+            currentScreen == AppScreen.HOME -> {
+                (context as? ComponentActivity)?.finish()
+            }
+        }
     }
 
     Scaffold(
@@ -1186,6 +1349,197 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                 viewModel.rejectAllTrackedChanges()
                 EditorCommands.rejectAllTrackedChanges(webViewRef)
                 persistPayload(viewModel.documentPayload.value)
+            }
+        )
+    }
+
+    if (showOnlineConsentDialog && pendingOnlinePdfUri != null) {
+        val pdfUri = pendingOnlinePdfUri!!
+        AlertDialog(
+            onDismissRequest = { showOnlineConsentDialog = false },
+            title = { Text("تحويل PDF عبر الإنترنت") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "سيتم رفع ملف PDF مؤقتاً إلى خدمة CloudConvert لتحويله إلى مستند Word (DOCX) عالي الدقة مع الحفاظ على التنسيقات والجداول والنصوص.",
+                        fontSize = 13.sp
+                    )
+                    Text(
+                        "• لا يتم حفظ الملف بشكل دائم، ويتم حذفه تلقائياً من الخادم فور انتهاء التحويل.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "• النسخة الأصلية من PDF ستظل محفوظة على جهازك ولن تتأثر.",
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        "• المستند المحول سيُفتح مباشرة في محرر REMOOFFICE لتحريره وحفظه محلياً.",
+                        fontSize = 12.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showOnlineConsentDialog = false
+                        startOnlineConversion(pdfUri)
+                    }
+                ) {
+                    Text("بدء التحويل الآمن")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOnlineConsentDialog = false }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    if (showOnlineKeyDialog) {
+        AlertDialog(
+            onDismissRequest = { showOnlineKeyDialog = false },
+            title = { Text("إعداد مفتاح مزود التحويل (CloudConvert)") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "لإجراء تحويل PDF إلى Word بدقة عالية عبر الإنترنت، يتطلب الأمر مفتاح CloudConvert API.",
+                        fontSize = 13.sp
+                    )
+                    OutlinedTextField(
+                        value = onlineKeyInput,
+                        onValueChange = { onlineKeyInput = it },
+                        label = { Text("CloudConvert API Key") },
+                        placeholder = { Text("الصق المفتاح هنا...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        "يتم حفظ المفتاح مشفراً محلياً في Android Keystore داخل جهازك فقط.",
+                        fontSize = 11.sp,
+                        color = Color(0xFF64748B)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (onlineKeyInput.isNotBlank()) {
+                            OnlinePdfToWordService.saveApiKey(context, onlineKeyInput)
+                            showOnlineKeyDialog = false
+                            if (pendingOnlinePdfUri != null) {
+                                showOnlineConsentDialog = true
+                            }
+                        }
+                    }
+                ) {
+                    Text("حفظ والمتابعة")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOnlineKeyDialog = false }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    if (isOnlineConverting) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { /* Prevent dismiss while active */ }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "جاري تحويل PDF إلى Word",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    LinearProgressIndicator(
+                        progress = { (conversionProgress / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = conversionStatusText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF64748B),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "$conversionProgress%",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                OnlinePdfToWordService.cancelConversion()
+                            }
+                        }
+                    ) {
+                        Text("إلغاء التحويل", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+    }
+
+    if (showImportReportDialog && activeImportReport != null) {
+        val report = activeImportReport!!
+        AlertDialog(
+            onDismissRequest = { showImportReportDialog = false },
+            title = { Text("تقرير استيراد وحفظ المحتوى") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("تم استيراد المستند بنجاح مع المحافظة على كافة العناصر:")
+                    Text("• الفقرات: ${report.paragraphCount}")
+                    Text("• الجداول: ${report.tableCount}")
+                    Text("• الصور المدمجة: ${report.imageCount}")
+                    if (report.smartArtCount > 0) {
+                        Text("• عناصر SmartArt: ${report.smartArtCount} (محفوظة بصرياً)")
+                    }
+                    if (report.chartCount > 0) {
+                        Text("• المخططات البيانية: ${report.chartCount} (محفوظة بصرياً)")
+                    }
+                    if (report.noteCount > 0) {
+                        Text("• الحواشي والتعليقات: ${report.noteCount}")
+                    }
+                    if (report.unsupportedReasons.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "ملاحظات التوافق:",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                        report.unsupportedReasons.forEach { reason ->
+                            Text("⚠️ $reason", fontSize = 11.sp, color = Color(0xFFB45309))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showImportReportDialog = false }) {
+                    Text("تم")
+                }
             }
         )
     }

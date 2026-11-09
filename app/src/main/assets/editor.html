@@ -5,6 +5,50 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=4.0, user-scalable=yes" />
 <title>REMOOFFICE محرر</title>
 <style>
+  /* Local bundled fonts: no external network requests */
+  @font-face {
+    font-family: 'REMOO Noto Sans Arabic';
+    src: url('fonts/NotoSansArabic-VF.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: block;
+  }
+  @font-face {
+    font-family: 'Noto Sans Arabic';
+    src: url('fonts/NotoSansArabic-VF.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: block;
+  }
+  @font-face {
+    font-family: 'REMOO Noto Sans';
+    src: url('fonts/NotoSans-VF.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: block;
+  }
+  @font-face {
+    font-family: 'Noto Sans';
+    src: url('fonts/NotoSans-VF.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: block;
+  }
+  @font-face {
+    font-family: 'REMOO Noto Serif';
+    src: url('fonts/NotoSerif-VF.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: block;
+  }
+  @font-face {
+    font-family: 'Noto Serif';
+    src: url('fonts/NotoSerif-VF.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: block;
+  }
+
   :root {
     --page-width: 210mm;
     --page-min-height: 297mm;
@@ -26,7 +70,7 @@
     margin: 0;
     padding: 0;
     background-color: #E8ECF2;
-    font-family: 'Arial', 'Tahoma', sans-serif;
+    font-family: 'REMOO Noto Sans Arabic', 'Noto Sans Arabic', 'REMOO Noto Sans', 'Noto Sans', 'Arial', 'Tahoma', sans-serif;
     -webkit-tap-highlight-color: transparent;
   }
 
@@ -346,6 +390,8 @@
     return { words, chars, paragraphs, pageCount };
   }
 
+  let lastValidSelectionRange = null;
+
   function notifySelectionState() {
     try {
       const sel = window.getSelection();
@@ -358,6 +404,10 @@
         cell.classList.add('selected-cell');
       }
       lastSelectedCell = cell;
+
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().trim().length > 0) {
+        lastValidSelectionRange = sel.getRangeAt(0).cloneRange();
+      }
 
       let alignment = 'left';
       if (document.queryCommandState('justifyCenter')) alignment = 'center';
@@ -1166,10 +1216,16 @@
   // --- Comments Implementation ---
   function createCommentAnchor(commentId) {
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return null;
-    const range = sel.getRangeAt(0);
-    const text = sel.toString().trim();
-    if (!text) return null;
+    let range = null;
+    let text = '';
+    if (sel && sel.rangeCount > 0 && sel.toString().trim().length > 0) {
+      range = sel.getRangeAt(0);
+      text = sel.toString().trim();
+    } else if (lastValidSelectionRange) {
+      range = lastValidSelectionRange;
+      text = range.toString().trim();
+    }
+    if (!range || !text) return null;
 
     const anchor = getCurrentSelectionAnchor();
     const mark = document.createElement('mark');
@@ -1182,6 +1238,7 @@
       mark.appendChild(frag);
       range.insertNode(mark);
     }
+    lastValidSelectionRange = null;
     notifyContentChanged();
     const resultObj = {
       commentId: commentId,

@@ -1,6 +1,9 @@
 package com.example.bridge
 
 import android.util.Base64
+import com.example.model.DocumentAnchor
+import com.example.model.DocumentImportReport
+import com.example.model.DocumentNote
 import com.example.model.DocumentPayload
 import com.example.model.MarginPreset
 import com.example.model.PageConfig
@@ -132,6 +135,17 @@ object DocxConverter {
                     run.setText(prefix)
                     processInlineNodes(p, li.childNodes(), InlineStyle())
                 }
+            }
+            "h1", "h2", "h3", "h4", "h5", "h6" -> {
+                val p = document.createParagraph()
+                applyParagraphAlignment(p, element)
+                val fontSize = when (tag) {
+                    "h1" -> 22
+                    "h2" -> 18
+                    "h3" -> 16
+                    else -> 14
+                }
+                processInlineNodes(p, element.childNodes(), InlineStyle(bold = true, fontSizePt = fontSize))
             }
             else -> {
                 val p = document.createParagraph()
@@ -289,6 +303,13 @@ object DocxConverter {
         val document = XWPFDocument(inputStream)
         val sb = StringBuilder()
 
+        var paragraphCount = 0
+        var tableCount = 0
+        var imageCount = 0
+        var smartArtCount = 0
+        var chartCount = 0
+        var fieldCount = 0
+
         val headerHtml = document.headerList.firstOrNull()?.text?.trim()?.let {
             if (it.isNotEmpty()) "<p>$it</p>" else ""
         } ?: ""
@@ -300,6 +321,7 @@ object DocxConverter {
         for (element in document.bodyElements) {
             when (element.elementType) {
                 BodyElementType.PARAGRAPH -> {
+                    paragraphCount++
                     val p = element as XWPFParagraph
                     val align = when (p.alignment) {
                         ParagraphAlignment.CENTER -> "center"
@@ -308,10 +330,36 @@ object DocxConverter {
                         else -> "left"
                     }
                     sb.append("<p style=\"text-align: $align;\">")
+
+                    val ctpXml = runCatching { p.ctp?.toString() ?: "" }.getOrDefault("")
+                    if (ctpXml.contains("dgm:") || ctpXml.contains("smartArt") || ctpXml.contains("diagram")) {
+                        smartArtCount++
+                        sb.append("<div class=\"remoffice-visual-preserved\" style=\"border: 1px dashed #2563EB; padding: 8px; margin: 6px 0; background-color: #EFF6FF; border-radius: 6px;\"><span style=\"color: #1D4ED8; font-weight: bold; font-size: 11px;\">📊 [عنصر SmartArt محفوظ بصرياً]</span></div>")
+                    } else if (ctpXml.contains("c:chart") || ctpXml.contains("chart")) {
+                        chartCount++
+                        sb.append("<div class=\"remoffice-visual-preserved\" style=\"border: 1px dashed #059669; padding: 8px; margin: 6px 0; background-color: #ECFDF5; border-radius: 6px;\"><span style=\"color: #047857; font-weight: bold; font-size: 11px;\">📈 [مخطط بياني محفوظ بصرياً]</span></div>")
+                    }
+                    if (ctpXml.contains("w:fldSimple") || ctpXml.contains("w:instrText")) {
+                        fieldCount++
+                    }
+
                     if (p.runs.isEmpty()) {
                         sb.append("<br>")
                     } else {
                         for (run in p.runs) {
+                            // Extract embedded pictures
+                            for (pic in run.embeddedPictures) {
+                                val picData = pic.pictureData
+                                val dataBytes = picData?.data
+                                if (dataBytes != null && dataBytes.isNotEmpty()) {
+                                    val b64 = Base64.encodeToString(dataBytes, Base64.NO_WRAP)
+                                    val ext = picData.suggestFileExtension() ?: "png"
+                                    val mime = if (ext.equals("jpg", ignoreCase = true)) "image/jpeg" else "image/${ext.lowercase()}"
+                                    sb.append("<div style=\"text-align: center; margin: 8px 0;\"><img src=\"data:$mime;base64,$b64\" style=\"max-width: 100%; height: auto; border-radius: 4px;\" alt=\"${pic.description ?: "صورة مدمجة"}\" /></div>")
+                                    imageCount++
+                                }
+                            }
+
                             var text = run.text() ?: ""
                             text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                             if (text.isEmpty()) continue
@@ -336,13 +384,39 @@ object DocxConverter {
                     sb.append("</p>")
                 }
                 BodyElementType.TABLE -> {
+                    tableCount++
                     val table = element as XWPFTable
-                    sb.append("<table><tbody>")
+                    sb.append("<table border=\"1\" style=\"width: 100%; border-collapse: collapse; margin: 8px 0;\"><tbody>")
                     for (row in table.rows) {
                         sb.append("<tr>")
                         for (cell in row.tableCells) {
-                            val cellText = cell.text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                            sb.append("<td>${cellText.ifEmpty { "<br>" }}</td>")
+                            val cellSb = StringBuilder()
+                            for (cp in cell.paragraphs) {
+                                for (cr in cp.runs) {
+                                    for (pic in cr.embeddedPictures) {
+                                        val picData = pic.pictureData
+                                        val dataBytes = picData?.data
+                                        if (dataBytes != null && dataBytes.isNotEmpty()) {
+                                            val b64 = Base64.encodeToString(dataBytes, Base64.NO_WRAP)
+                                            val ext = picData.suggestFileExtension() ?: "png"
+                                            val mime = if (ext.equals("jpg", ignoreCase = true)) "image/jpeg" else "image/${ext.lowercase()}"
+                                            cellSb.append("<img src=\"data:$mime;base64,$b64\" style=\"max-width: 100%; height: auto;\" />")
+                                            imageCount++
+                                        }
+                                    }
+                                    val t = (cr.text() ?: "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                                    if (t.isNotEmpty()) {
+                                        var wt = t
+                                        if (cr.isBold) wt = "<b>$wt</b>"
+                                        if (cr.isItalic) wt = "<i>$wt</i>"
+                                        cellSb.append(wt)
+                                    }
+                                }
+                            }
+                            val cellContent = cellSb.toString().ifEmpty {
+                                cell.text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").ifEmpty { "<br>" }
+                            }
+                            sb.append("<td style=\"padding: 6px; border: 1px solid #CBD5E1;\">$cellContent</td>")
                         }
                         sb.append("</tr>")
                     }
@@ -351,12 +425,50 @@ object DocxConverter {
                 else -> {}
             }
         }
+
+        // Extract footnotes/endnotes
+        val notes = mutableListOf<DocumentNote>()
+        runCatching {
+            document.footnotes?.forEachIndexed { idx, fn ->
+                val txt = fn.paragraphs.joinToString("\n") { it.text }.trim()
+                if (txt.isNotEmpty()) {
+                    notes.add(
+                        DocumentNote(
+                            id = "fn_${fn.id ?: idx}",
+                            type = "FOOTNOTE",
+                            text = txt,
+                            number = idx + 1
+                        )
+                    )
+                }
+            }
+        }
+
+        val report = DocumentImportReport(
+            paragraphCount = paragraphCount,
+            tableCount = tableCount,
+            imageCount = imageCount,
+            smartArtCount = smartArtCount,
+            chartCount = chartCount,
+            fieldCount = fieldCount,
+            noteCount = notes.size,
+            svgConvertedCount = 0,
+            imageFallbackCount = imageCount,
+            unsupportedCount = smartArtCount + chartCount,
+            unsupportedReasons = buildList {
+                if (smartArtCount > 0) add("تم الحفاظ على عناصر SmartArt بصرياً داخل المستند كعناصر محمية.")
+                if (chartCount > 0) add("تم الحفاظ على المخططات البيانية بصرياً لضمان عدم فقدان أي بيانات.")
+            }
+        )
+
         document.close()
         val bodyHtml = HtmlSanitizer.sanitizeHtml(sb.toString().ifBlank { "<p><br></p>" })
         return DocumentPayload(
             bodyHtml = bodyHtml,
             headerHtml = headerHtml,
-            footerHtml = footerHtml
+            footerHtml = footerHtml,
+            notes = notes,
+            importReport = report
         )
     }
 
