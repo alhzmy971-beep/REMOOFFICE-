@@ -47,13 +47,13 @@ jobs:
           chmod 600 my-upload-key.jks
           keytool -list -keystore my-upload-key.jks -storetype PKCS12 -storepass "$STORE_PASSWORD" -alias upload >/dev/null
       - name: Run unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest
-      - name: Build signed release APK and bundle
+        run: bash ./gradlew --no-daemon testDebugUnitTest
+      - name: Build signed release APK only
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew --no-daemon assembleRelease
+        run: bash ./gradlew --no-daemon assembleRelease
       - name: Verify APK signature
         run: |
           ${ANDROID_HOME}/build-tools/$(ls -1 ${ANDROID_HOME}/build-tools | sort -V | tail -1)/apksigner verify --verbose app/build/outputs/apk/release/app-release.apk

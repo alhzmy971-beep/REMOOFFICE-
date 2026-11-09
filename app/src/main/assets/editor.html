@@ -722,6 +722,7 @@
   const selectedTableCells = [];
   let activeTableContext = null;
   let activeCellRangeDrag = null;
+  let suppressTableHeaderClickUntil = 0;
 
   function setSelectedCells(cells, syncNativeSelection = false) {
     selectedTableCells.forEach(cell => cell.classList.remove('table-cell-selected'));
@@ -774,6 +775,7 @@
     originalRenderTableControls(cell);
     const table = getClosestTag(cell, 'table');
     if (!table) return;
+    installTableHeaderDrag(table);
     const tableRect = table.getBoundingClientRect();
     const sx = window.scrollX;
     const sy = window.scrollY;
@@ -888,6 +890,89 @@
     activeTableContext.index = to;
     selectColumn(table, to);
     notifyContentChanged();
+  }
+
+  function moveTableRowTo(table, from, to) {
+    const rows = Array.from(table.rows);
+    if (from === to || !rows[from] || !rows[to] || rows[from].parentNode !== rows[to].parentNode) return;
+    const row = rows[from];
+    if (from < to) row.parentNode.insertBefore(row, rows[to].nextSibling);
+    else row.parentNode.insertBefore(row, rows[to]);
+    activeTableContext = { type: 'row', index: to, table };
+    setSelectedCells(Array.from(row.cells), true);
+    notifyContentChanged();
+  }
+
+  function moveTableColumnTo(table, from, to) {
+    const firstRow = table.rows[0];
+    if (!firstRow || from === to || !firstRow.cells[from] || !firstRow.cells[to]) return;
+    Array.from(table.rows).forEach(row => {
+      if (!row.cells[from] || !row.cells[to]) return;
+      const cell = row.cells[from];
+      if (from < to) row.insertBefore(cell, row.cells[to].nextSibling);
+      else row.insertBefore(cell, row.cells[to]);
+    });
+    activeTableContext = { type: 'col', index: to, table };
+    selectColumn(table, to);
+    notifyContentChanged();
+  }
+
+  function installTableHeaderDrag(table) {
+    const attach = (header, kind, index) => {
+      const previousClick = header.onclick;
+      header.onclick = event => {
+        if (Date.now() < suppressTableHeaderClickUntil) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        if (previousClick) previousClick(event);
+      };
+      header.addEventListener('pointerdown', event => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        const pointerId = event.pointerId;
+        const startPoint = kind === 'row' ? event.clientY : event.clientX;
+        let targetIndex = index;
+        let moved = false;
+        try { header.setPointerCapture(pointerId); } catch (_) {}
+        const onMove = moveEvent => {
+          if (moveEvent.pointerId !== pointerId) return;
+          const point = kind === 'row' ? moveEvent.clientY : moveEvent.clientX;
+          if (Math.abs(point - startPoint) > 8) {
+            moved = true;
+            moveEvent.preventDefault();
+            header.style.opacity = '.55';
+          }
+          if (!moved) return;
+          const targets = kind === 'row' ? Array.from(table.rows) : Array.from(table.rows[0]?.cells || []);
+          if (!targets.length) return;
+          targetIndex = targets.reduce((best, item, itemIndex) => {
+            const rect = item.getBoundingClientRect();
+            const center = kind === 'row' ? rect.top + rect.height / 2 : rect.left + rect.width / 2;
+            const bestRect = targets[best].getBoundingClientRect();
+            const bestCenter = kind === 'row' ? bestRect.top + bestRect.height / 2 : bestRect.left + bestRect.width / 2;
+            return Math.abs(center - point) < Math.abs(bestCenter - point) ? itemIndex : best;
+          }, 0);
+        };
+        const finish = endEvent => {
+          if (endEvent.pointerId !== pointerId) return;
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', finish);
+          window.removeEventListener('pointercancel', finish);
+          header.style.opacity = '';
+          if (moved && targetIndex !== index) {
+            suppressTableHeaderClickUntil = Date.now() + 400;
+            if (kind === 'row') moveTableRowTo(table, index, targetIndex);
+            else moveTableColumnTo(table, index, targetIndex);
+          }
+        };
+        window.addEventListener('pointermove', onMove, { passive: false });
+        window.addEventListener('pointerup', finish);
+        window.addEventListener('pointercancel', finish);
+      });
+    };
+    Array.from(floatingControls.querySelectorAll('.row-number')).forEach((header, index) => attach(header, 'row', index));
+    Array.from(floatingControls.querySelectorAll('.col-letter')).forEach((header, index) => attach(header, 'col', index));
   }
 
   showTableMenu = function(x, y, type, index, table) {
