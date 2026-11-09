@@ -16,7 +16,6 @@ import org.apache.poi.xwpf.usermodel.BodyElementType
 import org.apache.poi.xwpf.usermodel.BreakType
 import org.apache.poi.xwpf.usermodel.ParagraphAlignment
 import org.apache.poi.xwpf.usermodel.UnderlinePatterns
-import org.apache.poi.xwpf.usermodel.VerticalAlign
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 import org.apache.poi.xwpf.usermodel.XWPFParagraph
 import org.apache.poi.xwpf.usermodel.XWPFRun
@@ -475,6 +474,7 @@ object DocxConverter {
                         val ext = picData.suggestFileExtension() ?: "png"
                         val mime = if (ext.equals("jpg", ignoreCase = true)) "image/jpeg" else "image/${ext.lowercase()}"
                         val widthPx = Units.toPoints(pic.ctPicture.spPr.xfrm.ext.cx)
+                        val heightPx = Units.toPoints(pic.ctPicture.spPr.xfrm.ext.cy)
                         val sizeStyle = if (widthPx > 0) "width: ${widthPx}pt; max-width: 100%; height: auto;" else "max-width: 100%; height: auto;"
                         sb.append("<div style=\"text-align: center; margin: 8px 0;\"><img src=\"data:$mime;base64,$b64\" style=\"$sizeStyle; border-radius: 4px;\" alt=\"${pic.description ?: "صورة مدمجة"}\" /></div>")
                         onImage()
@@ -505,8 +505,8 @@ object DocxConverter {
                 if (run.underline != UnderlinePatterns.NONE) wrapped = "<u>$wrapped</u>"
                 if (run.isStrikeThrough) wrapped = "<s>$wrapped</s>"
                 
-                if (run.getSubscript() == VerticalAlign.SUPERSCRIPT) wrapped = "<sup>$wrapped</sup>"
-                if (run.getSubscript() == VerticalAlign.SUBSCRIPT) wrapped = "<sub>$wrapped</sup>"
+                if (run.verticalAlignment?.toString()?.lowercase() == "superscript") wrapped = "<sup>$wrapped</sup>"
+                if (run.verticalAlignment?.toString()?.lowercase() == "subscript") wrapped = "<sub>$wrapped</sub>"
                 
                 sb.append(wrapped)
             }
