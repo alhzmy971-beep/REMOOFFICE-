@@ -330,7 +330,7 @@ object DocxConverter {
         runCatching {
             document.picturesTable.allPictures.forEach { picture ->
                 val bytes = picture.content
-                if (bytes.isNullOrEmpty()) return@forEach
+                if (bytes.isEmpty()) return@forEach
                 val ext = picture.suggestFileExtension().ifBlank { "png" }
                 val mime = when (ext.lowercase()) {
                     "jpg", "jpeg" -> "image/jpeg"
