@@ -265,6 +265,14 @@
     color: #475569;
   }
 
+  .remoffice-field {
+    display: inline-block;
+    min-width: 1.2em;
+    padding: 0 2px;
+    border-bottom: 1px dotted #94A3B8;
+    color: inherit;
+  }
+
   .text-box {
     border: 1.5px solid #1A56DB;
     background-color: #F8FAFC;
@@ -1156,6 +1164,18 @@
       window.AndroidBridge.onContentChanged(payload);
     }
   }
+  function updateFields() {
+    const stats = computeStats();
+    const totalPages = Math.max(1, stats.pageCount || 1);
+    document.querySelectorAll('.remoffice-field').forEach(field => {
+      const type = (field.dataset.fieldType || '').toUpperCase();
+      let value = field.dataset.fieldValue || '';
+      if (type === 'NUMPAGES') value = String(totalPages);
+      else if (type === 'DATE' || type === 'SAVEDATE' || type === 'CREATEDATE') value = new Date().toLocaleDateString();
+      else if (type === 'TIME') value = new Date().toLocaleTimeString();
+      if (value) field.textContent = value;
+    });
+  }
 
   window.addEventListener('scroll', () => ControlManager.update());
   window.addEventListener('resize', () => ControlManager.update());
@@ -1773,9 +1793,11 @@
       document.getElementById('pageHeader').innerHTML = headerHtml || '';
       document.getElementById('pageFooter').innerHTML = footerHtml || '';
       ensureElementIds();
+      updateFields();
       suppressTracking = false;
       notifySelectionState();
-    }
+    },
+    updateFields: () => { updateFields(); notifyContentChanged(); }
   };
 
   window.editorApi.setCellBackground = hex => {

@@ -302,6 +302,16 @@ object DocxConverter {
         }
     }
 
+    private fun ensureImportedContent(payload: DocumentPayload): DocumentPayload {
+        val body = payload.bodyHtml
+        val hasText = Jsoup.parse(body).text().trim().isNotEmpty()
+        val hasVisual = body.contains("<img", ignoreCase = true) || body.contains("<table", ignoreCase = true) || body.contains("remoffice-field", ignoreCase = true)
+        if (!hasText && !hasVisual) {
+            throw IllegalArgumentException("تعذر استيراد المستند: لم يتم العثور على محتوى قابل للعرض.")
+        }
+        return payload
+    }
+
     fun loadDocument(inputStream: InputStream, extension: String): DocumentPayload {
         return if (extension.lowercase() == "doc" || extension.lowercase() == "dot") {
             hwpfToPayload(inputStream)
@@ -313,13 +323,36 @@ object DocxConverter {
     private fun hwpfToPayload(inputStream: InputStream): DocumentPayload {
         val document = org.apache.poi.hwpf.HWPFDocument(inputStream)
         val extractor = org.apache.poi.hwpf.extractor.WordExtractor(document)
-        val bodyHtml = extractor.paragraphText.joinToString("") { "<p>${it.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").ifBlank { "<br>" }}</p>" }
-        
+        val body = StringBuilder(extractor.paragraphText.joinToString("") { paragraph ->
+            "<p>${paragraph.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").ifBlank { "<br>" }}</p>"
+        })
+        var imageCount = 0
+        runCatching {
+            document.picturesTable.allPictures.forEach { picture ->
+                val bytes = picture.content
+                if (bytes.isNullOrEmpty()) return@forEach
+                val ext = picture.suggestFileExtension().ifBlank { "png" }
+                val mime = when (ext.lowercase()) {
+                    "jpg", "jpeg" -> "image/jpeg"
+                    "gif" -> "image/gif"
+                    "bmp" -> "image/bmp"
+                    else -> "image/png"
+                }
+                val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                body.append("<p style=\"text-align:center\"><img src=\"data:$mime;base64,$encoded\" alt=\"DOC image\" style=\"max-width:100%;height:auto\" /></p>")
+                imageCount++
+            }
+        }
+        val bodyHtml = body.toString().ifBlank { "<p><br></p>" }
         document.close()
-        return DocumentPayload(
+        return ensureImportedContent(DocumentPayload(
             bodyHtml = bodyHtml,
-            importReport = DocumentImportReport(unsupportedReasons = listOf("تم استيراد ملف DOC قديم بنمط النص فقط لتعذر التحويل المباشر عالي الدقة."))
-        )
+            importReport = DocumentImportReport(
+                imageCount = imageCount,
+                imageFallbackCount = imageCount,
+                unsupportedReasons = listOf("ملف DOC القديم حُوّل إلى HTML مع النص والصور المضمنة؛ قد لا تُحفظ بعض خصائص Word القديمة مثل الحقول والرسومات المتقدمة.")
+            )
+        ))
     }
 
     fun docxToPayload(inputStream: InputStream): DocumentPayload {
@@ -430,7 +463,7 @@ object DocxConverter {
         val heightMm = pgSz?.h?.let { if (it is BigInteger) it.toFloat() * twipsToMm else 297f } ?: 297f
         val orientation = if (widthMm > heightMm) PageOrientation.LANDSCAPE else PageOrientation.PORTRAIT
         
-        return DocumentPayload(
+        return ensureImportedContent(DocumentPayload(
             bodyHtml = bodyHtml,
             headerHtml = headerHtml,
             footerHtml = footerHtml,
@@ -442,7 +475,7 @@ object DocxConverter {
                 size = if (widthMm > 250) PageSize.LEGAL else if (widthMm > 210) PageSize.LETTER else PageSize.A4
             ),
             importReport = report
-        )
+        ))
     }
 
     private fun convertParagraphToHtml(
@@ -481,7 +514,25 @@ object DocxConverter {
             sb.append("<div class=\"remoffice-visual-preserved\" style=\"border: 1px dashed #059669; padding: 8px; margin: 6px 0; background-color: #ECFDF5; border-radius: 6px;\"><span style=\"color: #047857; font-weight: bold; font-size: 11px;\">📈 [مخطط بياني محفوظ بصرياً]</span></div>")
         }
         if (ctpXml.contains("w:fldSimple") || ctpXml.contains("w:instrText")) {
-            onField()
+            val fieldCodes = Regex("""(?:w:instrText|instrText)[^>]*>(.*?)</(?:w:instrText|instrText)>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+                .findAll(ctpXml)
+                .map { it.groupValues[1].replace(Regex("<[^>]+>"), "").trim() }
+                .map { it.replace(Regex("\\s+"), " ").trim() }
+                .filter { it.isNotBlank() }
+                .toList()
+            if (fieldCodes.isEmpty()) {
+                onField()
+            } else {
+                fieldCodes.forEach { rawCode ->
+                    val code = rawCode.uppercase().substringBefore(' ').trim()
+                    val supported = setOf("PAGE", "NUMPAGES", "DATE", "TIME", "CREATEDATE", "SAVEDATE", "AUTHOR", "TITLE", "REF", "PAGEREF", "SEQ", "TOC", "HYPERLINK", "STYLEREF").contains(code)
+                    if (supported) {
+                        onField()
+                        val initial = if (code == "PAGE" || code == "NUMPAGES") "1" else ""
+                        sb.append("<span class=\"remoffice-field\" data-field-type=\"$code\" data-field-value=\"$initial\" contenteditable=\"false\">$initial</span>")
+                    }
+                }
+            }
         }
 
         if (p.runs.isEmpty()) {
