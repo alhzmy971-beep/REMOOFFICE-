@@ -8,6 +8,7 @@ import com.example.model.DocumentPayload
 import com.example.model.MarginPreset
 import com.example.model.PageConfig
 import com.example.model.PageOrientation
+import com.example.model.PageSize
 import com.example.security.HtmlSanitizer
 import org.apache.poi.util.Units
 import org.apache.poi.xwpf.model.XWPFHeaderFooterPolicy
@@ -15,6 +16,7 @@ import org.apache.poi.xwpf.usermodel.BodyElementType
 import org.apache.poi.xwpf.usermodel.BreakType
 import org.apache.poi.xwpf.usermodel.ParagraphAlignment
 import org.apache.poi.xwpf.usermodel.UnderlinePatterns
+import org.apache.poi.xwpf.usermodel.VerticalAlign
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 import org.apache.poi.xwpf.usermodel.XWPFParagraph
 import org.apache.poi.xwpf.usermodel.XWPFRun
@@ -305,8 +307,6 @@ object DocxConverter {
 
         val pgSz = document.document.body.sectPr?.pgSz
         val pgMar = document.document.body.sectPr?.pgMar
-        
-        // Convert twips to mm (1 twip = 1/1440 inch, 1 inch = 25.4 mm)
         val twipsToMm = 25.4f / 1440f
         
         var paragraphCount = 0
@@ -398,16 +398,15 @@ object DocxConverter {
         )
 
         document.close()
-        
         val bodyHtml = HtmlSanitizer.sanitizeHtml(sb.toString().ifBlank { "<p><br></p>" })
         
         val marginMm = pgMar?.let { 
-            (it.top?.let { t -> if (t is BigInteger) t.toFloat() else 0f } ?: 1440f) * twipsToMm
+            val top = it.top ?: BigInteger.valueOf(1440)
+            if (top is BigInteger) top.toFloat() * twipsToMm else 25.4f
         } ?: 25.4f
 
-        val widthMm = pgSz?.w?.let { if (it is BigInteger) it.toFloat() else 0f }?.let { it * twipsToMm } ?: 210f
-        val heightMm = pgSz?.h?.let { if (it is BigInteger) it.toFloat() else 0f }?.let { it * twipsToMm } ?: 297f
-        
+        val widthMm = pgSz?.w?.let { if (it is BigInteger) it.toFloat() * twipsToMm else 210f } ?: 210f
+        val heightMm = pgSz?.h?.let { if (it is BigInteger) it.toFloat() * twipsToMm else 297f } ?: 297f
         val orientation = if (widthMm > heightMm) PageOrientation.LANDSCAPE else PageOrientation.PORTRAIT
         
         return DocumentPayload(
@@ -417,7 +416,7 @@ object DocxConverter {
             notes = notes,
             pageConfig = PageConfig(
                 marginPreset = MarginPreset.CUSTOM,
-                customMarginMm = marginMm.toInt(),
+                customMarginMm = marginMm,
                 orientation = orientation,
                 size = if (widthMm > 250) PageSize.LEGAL else if (widthMm > 210) PageSize.LETTER else PageSize.A4
             ),
@@ -446,7 +445,6 @@ object DocxConverter {
         if (p.spacingAfter > 0) style.add("margin-bottom: ${p.spacingAfter / 20}pt")
         if (p.indentationLeft > 0) style.add("margin-inline-start: ${p.indentationLeft / 20}pt")
         if (p.spacingLineRule != null) {
-            // Simplified line height mapping
             style.add("line-height: 1.5")
         }
         
@@ -469,7 +467,6 @@ object DocxConverter {
             sb.append("<br>")
         } else {
             for (run in p.runs) {
-                // Extract embedded pictures
                 for (pic in run.embeddedPictures) {
                     val picData = pic.pictureData
                     val dataBytes = picData?.data
@@ -478,7 +475,6 @@ object DocxConverter {
                         val ext = picData.suggestFileExtension() ?: "png"
                         val mime = if (ext.equals("jpg", ignoreCase = true)) "image/jpeg" else "image/${ext.lowercase()}"
                         val widthPx = Units.toPoints(pic.ctPicture.spPr.xfrm.ext.cx)
-                        val heightPx = Units.toPoints(pic.ctPicture.spPr.xfrm.ext.cy)
                         val sizeStyle = if (widthPx > 0) "width: ${widthPx}pt; max-width: 100%; height: auto;" else "max-width: 100%; height: auto;"
                         sb.append("<div style=\"text-align: center; margin: 8px 0;\"><img src=\"data:$mime;base64,$b64\" style=\"$sizeStyle; border-radius: 4px;\" alt=\"${pic.description ?: "صورة مدمجة"}\" /></div>")
                         onImage()
@@ -508,8 +504,9 @@ object DocxConverter {
                 if (run.isItalic) wrapped = "<i>$wrapped</i>"
                 if (run.underline != UnderlinePatterns.NONE) wrapped = "<u>$wrapped</u>"
                 if (run.isStrikeThrough) wrapped = "<s>$wrapped</s>"
-                if (run.subscript == org.apache.poi.xwpf.usermodel.VerticalAlign.SUPERSCRIPT) wrapped = "<sup>$wrapped</sup>"
-                if (run.subscript == org.apache.poi.xwpf.usermodel.VerticalAlign.SUBSCRIPT) wrapped = "<sub>$wrapped</sup>"
+                
+                if (run.getSubscript() == VerticalAlign.SUPERSCRIPT) wrapped = "<sup>$wrapped</sup>"
+                if (run.getSubscript() == VerticalAlign.SUBSCRIPT) wrapped = "<sub>$wrapped</sup>"
                 
                 sb.append(wrapped)
             }
