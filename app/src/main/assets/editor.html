@@ -652,7 +652,25 @@
       exec(dir === 'rtl' ? 'justifyRight' : 'justifyLeft');
     },
 
-    setFontFamily: (font) => exec('fontName', font),
+    setFontFamily: (font) => {
+      focusEditor();
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+        document.execCommand('fontName', false, font);
+      } else {
+        const span = document.createElement('span');
+        span.style.fontFamily = font;
+        span.innerHTML = '&#8203;';
+        const range = sel.getRangeAt(0);
+        range.insertNode(span);
+        range.setStart(span.firstChild, 1);
+        range.setEnd(span.firstChild, 1);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      notifySelectionState();
+      notifyContentChanged();
+    },
 
     setFontSize: (pt) => {
       currentFontSizePt = Math.max(8, Math.min(72, parseInt(pt, 10) || 14));

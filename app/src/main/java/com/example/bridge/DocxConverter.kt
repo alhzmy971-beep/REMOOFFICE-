@@ -19,6 +19,8 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument
 import org.apache.poi.xwpf.usermodel.XWPFParagraph
 import org.apache.poi.xwpf.usermodel.XWPFRun
 import org.apache.poi.xwpf.usermodel.XWPFTable
+import org.apache.poi.hwpf.HWPFDocument
+import org.apache.poi.hwpf.extractor.WordExtractor
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.nodes.Node
@@ -297,6 +299,26 @@ object DocxConverter {
             )
         } catch (_: Exception) {
         }
+    }
+
+    fun loadDocument(inputStream: InputStream, extension: String): DocumentPayload {
+        return if (extension.lowercase() == "doc" || extension.lowercase() == "dot") {
+            hwpfToPayload(inputStream)
+        } else {
+            docxToPayload(inputStream)
+        }
+    }
+
+    private fun hwpfToPayload(inputStream: InputStream): DocumentPayload {
+        val document = org.apache.poi.hwpf.HWPFDocument(inputStream)
+        val extractor = org.apache.poi.hwpf.extractor.WordExtractor(document)
+        val bodyHtml = extractor.paragraphText.joinToString("") { "<p>${it.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").ifBlank { "<br>" }}</p>" }
+        
+        document.close()
+        return DocumentPayload(
+            bodyHtml = bodyHtml,
+            importReport = DocumentImportReport(unsupportedReasons = listOf("تم استيراد ملف DOC قديم بنمط النص فقط لتعذر التحويل المباشر عالي الدقة."))
+        )
     }
 
     fun docxToPayload(inputStream: InputStream): DocumentPayload {
