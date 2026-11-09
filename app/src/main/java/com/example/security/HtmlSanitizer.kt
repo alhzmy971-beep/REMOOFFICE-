@@ -27,7 +27,7 @@ object HtmlSanitizer {
         .addAttributes("circle", "cx", "cy", "r", "fill", "stroke", "stroke-width")
         .addAttributes("line", "x1", "y1", "x2", "y2", "stroke", "stroke-width")
         .addAttributes("polygon", "points", "fill", "stroke", "stroke-width")
-        .addAttributes("path", "d", "fill", "stroke", "stroke-width")
+        .addAttributes("path", "d", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin")
         .addProtocols("a", "href", "http", "https", "mailto")
         .addProtocols("img", "src", "http", "https", "data")
 

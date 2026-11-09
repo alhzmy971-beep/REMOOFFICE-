@@ -246,19 +246,26 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     val isTxt = mime.contains("text/plain", ignoreCase = true) || lowerName.endsWith(".txt")
                     val isRtf = mime.contains("rtf", ignoreCase = true) || lowerName.endsWith(".rtf")
                     val isHtml = mime.contains("html", ignoreCase = true) || lowerName.endsWith(".html") || lowerName.endsWith(".htm")
-                    val isLegacyDoc = (lowerName.endsWith(".doc") || lowerName.endsWith(".dot")) && !lowerName.endsWith(".docx")
-                    val isWord = isLegacyDoc || lowerName.endsWith(".docx") || lowerName.endsWith(".docm") || lowerName.endsWith(".dot") || lowerName.endsWith(".dotx") || lowerName.endsWith(".dotm") || mime.contains("word", ignoreCase = true) || mime.contains("msword", ignoreCase = true)
+                    val isModernWord = lowerName.endsWith(".docx") || lowerName.endsWith(".docm") ||
+                        lowerName.endsWith(".dotx") || lowerName.endsWith(".dotm") ||
+                        mime.contains("openxmlformats-officedocument.wordprocessingml", ignoreCase = true) ||
+                        mime.contains("macroenabled.12", ignoreCase = true)
+                    val isLegacyDoc = lowerName.endsWith(".doc") || lowerName.endsWith(".dot") ||
+                        (!isModernWord && (mime.equals("application/msword", ignoreCase = true) ||
+                            mime.equals("application/vnd.ms-word", ignoreCase = true)))
+                    val isWord = isLegacyDoc || isModernWord ||
+                        mime.contains("word", ignoreCase = true) || mime.contains("msword", ignoreCase = true)
 
                     val importedPayload = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use { input ->
                             when {
-                                isPdf -> com.example.model.DocumentPayload(bodyHtml = PdfImporter.pdfToHtml(context, input))
+                                isPdf -> PdfImporter.pdfToPayload(context, input)
                                 isTxt -> com.example.model.DocumentPayload(bodyHtml = DocxConverter.txtToHtml(input))
                                 isRtf -> com.example.model.DocumentPayload(bodyHtml = DocxConverter.rtfToHtml(input))
                                 isHtml -> DocxConverter.htmlToPayload(input)
                                 isLegacyDoc -> DocxConverter.docToPayload(input)
                                 isWord -> DocxConverter.docxToPayload(input)
-                                else -> com.example.model.DocumentPayload(bodyHtml = DocxConverter.txtToHtml(input))
+                                else -> throw IllegalArgumentException("نوع الملف غير مدعوم: $fileName")
                             }
                         } ?: com.example.model.DocumentPayload()
                     }
@@ -287,7 +294,16 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                         importedPayload.headerHtml,
                         importedPayload.footerHtml
                     )
-                    viewModel.showMessage("تم استيراد المستند بنجاح")
+                    EditorCommands.setPageConfig(webViewRef, importedPayload.pageConfig)
+                    EditorCommands.setPageBackground(webViewRef, importedPayload.pageConfig.pageTheme)
+                    viewModel.showMessage(
+                        when {
+                            isPdf -> "تم استيراد النصوص والصور والرسوم من PDF؛ قد يختلف تخطيط العناصر المعقدة عن الأصل."
+                            isLegacyDoc -> "تم فتح ملف Word القديم؛ قد لا تنتقل بعض الصور والتنسيقات المتقدمة."
+                            isRtf -> "تم فتح النص من RTF؛ قد لا تنتقل الصور والتنسيقات المتقدمة."
+                            else -> "تم استيراد المستند؛ قد تختلف بعض العناصر المعقدة عن الملف الأصلي."
+                        }
+                    )
                 } catch (e: Exception) {
                     viewModel.showMessage("تعذر استيراد الملف: ${e.localizedMessage}")
                 }
@@ -692,6 +708,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 }
                             },
                             onInsertShape = { EditorCommands.insertShape(webViewRef, it) },
+                            onToggleDrawingMode = { EditorCommands.toggleDrawingMode(webViewRef) },
                             onOpenTextBoxDialog = { showTextBoxDialog = true },
                             onOpenHyperlinkDialog = { showHyperlinkDialog = true },
                             onInsertPageBreak = { EditorCommands.insertPageBreak(webViewRef) },

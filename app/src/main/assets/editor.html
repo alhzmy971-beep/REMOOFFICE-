@@ -28,6 +28,16 @@
     font-weight: 100 900;
     font-display: block;
   }
+  @font-face { font-family: 'Amiri'; src: url('fonts/Amiri-Regular.ttf') format('truetype'); font-style: normal; font-weight: 400; font-display: swap; }
+  @font-face { font-family: 'Amiri'; src: url('fonts/Amiri-Bold.ttf') format('truetype'); font-style: normal; font-weight: 700; font-display: swap; }
+  @font-face { font-family: 'Cairo'; src: url('fonts/Cairo-Variable.ttf') format('truetype'); font-style: normal; font-weight: 200 1000; font-display: swap; }
+  @font-face { font-family: 'Tajawal'; src: url('fonts/Tajawal-Regular.ttf') format('truetype'); font-style: normal; font-weight: 400; font-display: swap; }
+  @font-face { font-family: 'Tajawal'; src: url('fonts/Tajawal-Bold.ttf') format('truetype'); font-style: normal; font-weight: 700; font-display: swap; }
+  @font-face { font-family: 'Noto Naskh Arabic'; src: url('fonts/NotoNaskhArabic-Variable.ttf') format('truetype'); font-style: normal; font-weight: 400 700; font-display: swap; }
+  @font-face { font-family: 'Noto Kufi Arabic'; src: url('fonts/NotoKufiArabic-Variable.ttf') format('truetype'); font-style: normal; font-weight: 100 900; font-display: swap; }
+  @font-face { font-family: 'Roboto'; src: url('fonts/Roboto-Variable.ttf') format('truetype'); font-style: normal; font-weight: 100 900; font-display: swap; }
+  @font-face { font-family: 'Open Sans'; src: url('fonts/OpenSans-Variable.ttf') format('truetype'); font-style: normal; font-weight: 300 800; font-display: swap; }
+  @font-face { font-family: 'Montserrat'; src: url('fonts/Montserrat-Variable.ttf') format('truetype'); font-style: normal; font-weight: 100 900; font-display: swap; }
 
   :root {
     --page-width: 210mm;
@@ -206,6 +216,20 @@
   .page-break::after {
     content: "— فاصل صفحة / Page Break —";
   }
+
+  .page-break.auto-page-break {
+    height: 20px;
+    min-height: 20px;
+    margin: 12px calc(-1 * var(--page-margin-right)) 12px calc(-1 * var(--page-margin-left));
+    padding: 0;
+    border: 0;
+    border-block: 1px solid #CBD5E1;
+    background: #E8ECF2;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .page-break.auto-page-break::after { content: ""; }
 
   .page-number {
     display: inline-block;
@@ -578,7 +602,9 @@
   const editor = document.getElementById('editor');
   const pageContainer = document.getElementById('pageContainer');
   const supportedFontFamilies = new Set([
-    'REMOO Noto Sans Arabic', 'REMOO Noto Sans', 'REMOO Noto Serif', 'Arial', 'Calibri', 'Times New Roman', 'Georgia', 'Roboto'
+    'REMOO Noto Sans Arabic', 'REMOO Noto Sans', 'REMOO Noto Serif',
+    'Amiri', 'Cairo', 'Tajawal', 'Noto Naskh Arabic', 'Noto Kufi Arabic',
+    'Roboto', 'Open Sans', 'Montserrat'
   ]);
   let currentFontSizePt = 14;
   let currentLineHeight = '1.5';
@@ -1243,7 +1269,53 @@
     }
     notifySelectionState();
   });
+  let autoPaginationTimer = null;
+
+  function insertAutomaticPageBreaks() {
+    editor.querySelectorAll('.auto-page-break').forEach((breakElement) => breakElement.remove());
+    const pageStyle = getComputedStyle(pageContainer);
+    const pageHeight = parseFloat(pageStyle.minHeight) || 1122;
+    const topPadding = parseFloat(pageStyle.paddingTop) || 0;
+    const bottomPadding = parseFloat(pageStyle.paddingBottom) || 0;
+    const headerHeight = document.getElementById('pageHeader').offsetHeight;
+    const footerHeight = document.getElementById('pageFooter').offsetHeight;
+    const contentCapacity = Math.max(300, pageHeight - topPadding - bottomPadding - headerHeight - footerHeight);
+    let usedHeight = 0;
+    const blocks = Array.from(editor.children);
+
+    for (const block of blocks) {
+      if (block.classList.contains('draw-layer')) continue;
+      if (block.classList.contains('page-break')) {
+        usedHeight = 0;
+        continue;
+      }
+
+      const style = getComputedStyle(block);
+      const outerHeight = block.offsetHeight + (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
+      if (usedHeight > 0 && usedHeight + outerHeight > contentCapacity) {
+        const pageBreak = document.createElement('div');
+        pageBreak.className = 'page-break auto-page-break';
+        pageBreak.setAttribute('contenteditable', 'false');
+        pageBreak.setAttribute('aria-label', 'صفحة جديدة');
+        editor.insertBefore(pageBreak, block);
+        usedHeight = 0;
+      }
+      usedHeight += outerHeight;
+    }
+  }
+
+  function scheduleAutomaticPageBreaks() {
+    if (autoPaginationTimer !== null) clearTimeout(autoPaginationTimer);
+    autoPaginationTimer = setTimeout(() => {
+      autoPaginationTimer = null;
+      insertAutomaticPageBreaks();
+      notifyContentChanged();
+      notifySelectionState();
+    }, 140);
+  }
+
   editor.addEventListener('input', function() {
+    scheduleAutomaticPageBreaks();
     notifySelectionState();
     notifyContentChanged();
   });
@@ -1727,7 +1799,10 @@
       let m = '25.4mm';
       if (marginPreset === 'Narrow') m = '12.7mm';
       else if (marginPreset === 'Wide') m = '38.1mm';
-      else if (marginPreset === 'Custom') m = (customMarginMm || 20) + 'mm';
+      else if (marginPreset === 'Custom') {
+        const customMargin = Number(customMarginMm);
+        m = (Number.isFinite(customMargin) ? customMargin : 20) + 'mm';
+      }
 
       root.setProperty('--page-margin-top', m);
       root.setProperty('--page-margin-right', m);
@@ -1831,6 +1906,7 @@
     setDocumentPayload: (bodyHtml, headerHtml, footerHtml) => {
       suppressTracking = true;
       editor.innerHTML = bodyHtml || '<p><br></p>';
+      editor.querySelectorAll('.page-break').forEach((pageBreak) => pageBreak.setAttribute('contenteditable', 'false'));
       document.getElementById('pageHeader').innerHTML = headerHtml || '';
       document.getElementById('pageFooter').innerHTML = footerHtml || '';
       ensureElementIds();

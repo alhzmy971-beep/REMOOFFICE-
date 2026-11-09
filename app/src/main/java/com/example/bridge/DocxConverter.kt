@@ -6,6 +6,7 @@ import com.example.model.MarginPreset
 import com.example.model.PageConfig
 import com.example.model.PageOrientation
 import com.example.security.HtmlSanitizer
+import org.apache.poi.common.usermodel.PictureType
 import org.apache.poi.util.Units
 import org.apache.poi.xwpf.model.XWPFHeaderFooterPolicy
 import org.apache.poi.xwpf.usermodel.BodyElementType
@@ -55,7 +56,7 @@ object DocxConverter {
         val body = doc.body()
 
         for (child in body.children()) {
-            processBlockElement(document, child)
+            processBlockElement(document, child, payload.pageConfig)
         }
 
         if (document.paragraphs.isEmpty() && document.tables.isEmpty()) {
@@ -97,11 +98,16 @@ object DocxConverter {
         }
     }
 
-    private fun processBlockElement(document: XWPFDocument, element: Element) {
+    private fun processBlockElement(document: XWPFDocument, element: Element, pageConfig: PageConfig) {
         val tag = element.tagName().lowercase()
         if (element.hasClass("page-break")) {
             val p = document.createParagraph()
             p.createRun().addBreak(BreakType.PAGE)
+            return
+        }
+
+        if (element.hasClass("pdf-page")) {
+            processPdfPage(document, element, pageConfig)
             return
         }
 
@@ -139,6 +145,162 @@ object DocxConverter {
                 processInlineNodes(p, element.childNodes(), InlineStyle())
             }
         }
+    }
+
+    private fun processPdfPage(document: XWPFDocument, page: Element, pageConfig: PageConfig) {
+        data class PageItem(
+            val element: Element?,
+            val topPt: Float,
+            val leftPt: Float,
+            val widthPt: Float,
+            val heightPt: Float,
+            val svgBytes: ByteArray? = null
+        )
+
+        val positioned = mutableListOf<PageItem>()
+        page.children().filter {
+            it.hasClass("pdf-text-line") || it.hasClass("pdf-import-image") || it.hasClass("pdf-page-image-fallback")
+        }.forEach { element ->
+            val style = element.attr("style")
+            val widthPt = cssPoint(style, "width") ?: if (element.hasClass("pdf-page-image-fallback")) pageWidthPt(pageConfig) else 0f
+            val heightPt = cssPoint(style, "height") ?: if (element.hasClass("pdf-page-image-fallback")) pageHeightPt(pageConfig) else 0f
+            positioned.add(
+                PageItem(
+                    element = element,
+                    topPt = cssPoint(style, "top") ?: 0f,
+                    leftPt = cssPoint(style, "left") ?: 0f,
+                    widthPt = widthPt,
+                    heightPt = heightPt
+                )
+            )
+        }
+
+        val svgLayer = page.children().firstOrNull { it.tagName().equals("svg", ignoreCase = true) }
+        if (svgLayer != null) {
+            val sourceWidth = svgLayer.attr("width").toFloatOrNull() ?: 0f
+            val scale = if (sourceWidth > 0f) pageWidthPt(pageConfig) / sourceWidth else 1f
+            for (path in svgLayer.children().filter { it.tagName().equals("path", ignoreCase = true) }) {
+                val d = path.attr("d")
+                val bounds = svgPathBounds(d) ?: continue
+                val strokeWidth = path.attr("stroke-width").toFloatOrNull() ?: 0f
+                val pad = maxOf(0.5f, strokeWidth / 2f)
+                val left = bounds[0] - pad
+                val top = bounds[1] - pad
+                val width = maxOf(1f, bounds[2] - bounds[0] + pad * 2f)
+                val height = maxOf(1f, bounds[3] - bounds[1] + pad * 2f)
+                val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${width}\" height=\"${height}\" viewBox=\"${left} ${top} ${width} ${height}\"><path d=\"${xmlEscape(d)}\" fill=\"${xmlEscape(path.attr("fill"))}\" stroke=\"${xmlEscape(path.attr("stroke"))}\" stroke-width=\"${strokeWidth}\" /></svg>"
+                positioned.add(
+                    PageItem(
+                        element = null,
+                        topPt = top * scale,
+                        leftPt = left * scale,
+                        widthPt = width * scale,
+                        heightPt = height * scale,
+                        svgBytes = svg.toByteArray(Charsets.UTF_8)
+                    )
+                )
+            }
+        }
+
+        val ordered = positioned.sortedBy { it.topPt }
+        var cursorPt = 0f
+
+        for (item in ordered) {
+            val element = item.element
+            val style = element?.attr("style").orEmpty()
+            val topPt = item.topPt
+            val leftPt = item.leftPt
+            val gapPt = (topPt - cursorPt).coerceAtLeast(0f)
+            val p = document.createParagraph()
+            p.spacingBefore = (gapPt * 20f).toInt()
+            p.spacingAfter = 0
+            p.indentationLeft = (leftPt * 20f).toInt()
+
+            when {
+                item.svgBytes != null -> {
+                    p.createRun().addPicture(
+                        ByteArrayInputStream(item.svgBytes), PictureType.SVG, "pdf-vector.svg",
+                        Units.toEMU(item.widthPt.toDouble()), Units.toEMU(item.heightPt.toDouble())
+                    )
+                    cursorPt = maxOf(cursorPt, topPt + item.heightPt)
+                }
+                element?.hasClass("pdf-text-line") == true -> {
+                if (style.contains("direction:rtl")) p.alignment = ParagraphAlignment.RIGHT
+                val inlineStyle = parseInlineCss(style, InlineStyle())
+                processInlineNodes(p, element.childNodes(), inlineStyle)
+                val lineHeight = cssPoint(style, "min-height") ?: inlineStyle.fontSizePt?.toFloat() ?: 12f
+                cursorPt = maxOf(cursorPt, topPt + lineHeight)
+                }
+                element != null -> {
+                val source = element.attr("src")
+                insertPositionedPdfImage(p, source, item.widthPt.takeIf { it > 0f } ?: pageWidthPt(pageConfig),
+                    item.heightPt.takeIf { it > 0f } ?: pageHeightPt(pageConfig))
+                cursorPt = maxOf(cursorPt, topPt + item.heightPt)
+                }
+            }
+        }
+    }
+
+    private fun svgPathBounds(d: String): FloatArray? {
+        val tokens = Regex("[MLCZ]|[-+]?(?:[0-9]*\\.)?[0-9]+(?:[eE][-+]?[0-9]+)?").findAll(d)
+            .map { it.value }.toList()
+        val points = mutableListOf<Pair<Float, Float>>()
+        var command = ' '
+        var index = 0
+        while (index < tokens.size) {
+            val token = tokens[index]
+            if (token.length == 1 && token[0].isLetter()) {
+                command = token[0].uppercaseChar()
+                index++
+                if (command == 'Z') continue
+            }
+            val count = when (command) { 'M', 'L' -> 2; 'C' -> 6; else -> return null }
+            if (index + count > tokens.size) return null
+            val values = (0 until count).map { tokens[index + it].toFloatOrNull() ?: return null }
+            for (pair in values.indices step 2) points.add(values[pair] to values[pair + 1])
+            index += count
+        }
+        if (points.isEmpty()) return null
+        return floatArrayOf(
+            points.minOf { it.first }, points.minOf { it.second },
+            points.maxOf { it.first }, points.maxOf { it.second }
+        )
+    }
+
+    private fun xmlEscape(value: String): String = value
+        .replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+
+    private fun cssPoint(style: String, property: String): Float? {
+        val match = Regex("(?:^|;)\\s*${Regex.escape(property)}\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)\\s*pt", RegexOption.IGNORE_CASE)
+            .find(style) ?: return null
+        return match.groupValues[1].toFloatOrNull()
+    }
+
+    private fun pageWidthPt(config: PageConfig): Float {
+        val widthMm = if (config.orientation == PageOrientation.LANDSCAPE) config.size.heightMm else config.size.widthMm
+        return widthMm * 72f / 25.4f
+    }
+
+    private fun pageHeightPt(config: PageConfig): Float {
+        val heightMm = if (config.orientation == PageOrientation.LANDSCAPE) config.size.widthMm else config.size.heightMm
+        return heightMm * 72f / 25.4f
+    }
+
+    private fun insertPositionedPdfImage(p: XWPFParagraph, src: String, widthPt: Float, heightPt: Float) {
+        if (!src.startsWith("data:image/")) return
+        val base64Part = src.substringAfter("base64,", "")
+        if (base64Part.isEmpty()) return
+        val bytes = Base64.decode(base64Part, Base64.DEFAULT)
+        val type = when {
+            src.startsWith("data:image/png") -> XWPFDocument.PICTURE_TYPE_PNG
+            src.startsWith("data:image/gif") -> XWPFDocument.PICTURE_TYPE_GIF
+            src.startsWith("data:image/bmp") -> XWPFDocument.PICTURE_TYPE_BMP
+            else -> XWPFDocument.PICTURE_TYPE_JPEG
+        }
+        p.createRun().addPicture(
+            ByteArrayInputStream(bytes), type, "pdf-image.png",
+            Units.toEMU(widthPt.toDouble()), Units.toEMU(heightPt.toDouble())
+        )
     }
 
     private fun applyParagraphAlignment(p: XWPFParagraph, element: Element) {

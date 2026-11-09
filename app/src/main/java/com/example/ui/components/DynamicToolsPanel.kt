@@ -132,6 +132,7 @@ fun DynamicToolsPanel(
     onPickImageGallery: () -> Unit,
     onTakePhotoCamera: () -> Unit,
     onInsertShape: (String) -> Unit,
+    onToggleDrawingMode: () -> Unit,
     onOpenTextBoxDialog: () -> Unit,
     onOpenHyperlinkDialog: () -> Unit,
     onInsertPageBreak: () -> Unit,
@@ -217,6 +218,7 @@ fun DynamicToolsPanel(
                     onPickImageGallery = onPickImageGallery,
                     onTakePhotoCamera = onTakePhotoCamera,
                     onInsertShape = onInsertShape,
+                    onToggleDrawingMode = onToggleDrawingMode,
                     onOpenTextBoxDialog = onOpenTextBoxDialog,
                     onOpenHyperlinkDialog = onOpenHyperlinkDialog,
                     onInsertPageBreak = onInsertPageBreak,
@@ -313,8 +315,9 @@ private fun HomeToolsContent(
         "BLOCKQUOTE" to "اقتباس"
     )
     val fonts = listOf(
-        "REMOO Noto Sans Arabic", "REMOO Noto Sans", "REMOO Noto Serif",
-        "Arial", "Calibri", "Times New Roman", "Georgia", "Roboto"
+        "REMOO Noto Sans Arabic", "Noto Naskh Arabic", "Noto Kufi Arabic",
+        "Amiri", "Cairo", "Tajawal",
+        "REMOO Noto Sans", "REMOO Noto Serif", "Roboto", "Open Sans", "Montserrat"
     )
     val sizes = listOf(8, 10, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72)
     val colors = listOf(
@@ -552,6 +555,7 @@ private fun InsertToolsContent(
     onPickImageGallery: () -> Unit,
     onTakePhotoCamera: () -> Unit,
     onInsertShape: (String) -> Unit,
+    onToggleDrawingMode: () -> Unit,
     onOpenTextBoxDialog: () -> Unit,
     onOpenHyperlinkDialog: () -> Unit,
     onInsertPageBreak: () -> Unit,
@@ -593,6 +597,7 @@ private fun InsertToolsContent(
             ActionChipButton(Icons.Default.GridOn, "جدول", onOpenTableDialog, "insert_table")
             ActionChipButton(Icons.Default.Image, "صورة", onPickImageGallery, "insert_image")
             ActionChipButton(Icons.Default.CameraAlt, "كاميرا", onTakePhotoCamera, "insert_camera")
+            ActionChipButton(Icons.Default.FormatPaint, "رسم", onToggleDrawingMode, "toggle_drawing_mode")
 
             Box {
                 ActionChipButton(Icons.Default.Category, "أشكال", { shapesMenuExpanded = true }, "insert_shape")
