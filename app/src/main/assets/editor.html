@@ -167,6 +167,11 @@
     outline: 2px solid #1A56DB;
   }
 
+  #editor { position: relative; }
+  #editor.cell-selecting td, #editor.cell-selecting th { user-select: none; -webkit-user-select: none; }
+  #editor .draw-layer { position: absolute; left: 0; top: 0; z-index: 25; overflow: visible; pointer-events: none; }
+  #editor.drawing-mode .draw-layer { pointer-events: auto; touch-action: none; }
+
   .page img {
     max-width: 100%;
     height: auto;
@@ -223,6 +228,166 @@
   .shape-block {
     margin: 10px 0;
     display: inline-block;
+  }
+
+  .selected-range-cell {
+    background: rgba(26, 86, 219, 0.16) !important;
+    outline: 2px solid #1A56DB;
+    outline-offset: -2px;
+  }
+
+  .editor-floating-tools {
+    position: fixed;
+    z-index: 10000;
+    display: none;
+    direction: rtl;
+    font: 14px 'REMOO Noto Sans Arabic', sans-serif;
+    color: #1E293B;
+    background: #FFFFFF;
+    border: 1px solid #CBD5E1;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
+    touch-action: manipulation;
+  }
+
+  .editor-floating-tools.visible { display: flex; }
+
+  #miniFormatToolbar {
+    align-items: center;
+    gap: 4px;
+    padding: 5px 7px;
+    white-space: nowrap;
+  }
+
+  .editor-floating-tools button {
+    min-width: 36px;
+    min-height: 36px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    touch-action: manipulation;
+  }
+
+  .editor-floating-tools button:active,
+  .editor-floating-tools button.active { background: #DBEAFE; color: #1A56DB; }
+
+  .mini-color-palette {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+  }
+
+  .mini-color-palette.visible { display: flex; }
+
+  .mini-color-swatch {
+    width: 25px;
+    height: 25px;
+    min-width: 25px !important;
+    min-height: 25px !important;
+    border-radius: 50% !important;
+    border: 1px solid #94A3B8 !important;
+  }
+
+  #tableQuickToolbar {
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+  }
+
+  #tableQuickToolbar button { min-width: 40px; }
+
+  #objectQuickToolbar {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    width: min(94vw, 440px);
+    max-height: 42vh;
+    overflow-y: auto;
+    padding: 12px;
+  }
+
+  #objectQuickToolbar.visible { display: flex; }
+
+  .object-tools-heading, .object-tools-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .object-tools-row button { flex: 1; border: 1px solid #E2E8F0; }
+  .object-tools-row button.active { border-color: #1A56DB; }
+  .object-color { min-width: 28px !important; min-height: 28px !important; border-radius: 50% !important; border: 3px solid currentColor !important; }
+  .object-border-sample { border-radius: 5px !important; }
+
+  #objectSelectionOutline {
+    position: fixed;
+    z-index: 9998;
+    display: none;
+    border: 1.5px solid #475569;
+    pointer-events: none;
+    touch-action: none;
+  }
+
+  #objectSelectionOutline.visible { display: block; }
+
+  .object-handle {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border: 1px solid #FFFFFF;
+    border-radius: 50%;
+    background: #60646B;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    touch-action: none;
+  }
+
+  .object-handle[data-handle="nw"] { left: 0; top: 0; }
+  .object-handle[data-handle="n"] { left: 50%; top: 0; }
+  .object-handle[data-handle="ne"] { left: 100%; top: 0; }
+  .object-handle[data-handle="e"] { left: 100%; top: 50%; }
+  .object-handle[data-handle="se"] { left: 100%; top: 100%; }
+  .object-handle[data-handle="s"] { left: 50%; top: 100%; }
+  .object-handle[data-handle="sw"] { left: 0; top: 100%; }
+  .object-handle[data-handle="w"] { left: 0; top: 50%; }
+
+  .object-rotate-handle {
+    position: absolute;
+    left: 50%;
+    top: -40px;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 50%;
+    background: #60646B;
+    color: #FFFFFF;
+    transform: translateX(-50%);
+    pointer-events: auto;
+    touch-action: none;
+  }
+
+  #drawingModeBadge {
+    position: fixed;
+    z-index: 10001;
+    display: none;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    padding: 8px 14px;
+    border-radius: 18px;
+    color: #FFFFFF;
+    background: #1A56DB;
+    font: 13px 'REMOO Noto Sans Arabic', sans-serif;
+  }
+
+  #drawingModeBadge.visible { display: block; }
+
+  @media print {
+    .editor-floating-tools, #objectSelectionOutline, #drawingModeBadge { display: none !important; }
   }
 
   ins.remoffice-insert {
@@ -318,23 +483,108 @@
   </div>
 </div>
 
+<div id="miniFormatToolbar" class="editor-floating-tools" role="toolbar" aria-label="تنسيق النص المحدد">
+  <button type="button" data-format-action="bold" aria-label="عريض"><b>B</b></button>
+  <button type="button" data-format-action="italic" aria-label="مائل"><i>I</i></button>
+  <button type="button" data-format-action="underline" aria-label="تحته خط"><u>U</u></button>
+  <button type="button" data-format-palette="foreColor" aria-label="لون النص">A</button>
+  <button type="button" data-format-palette="backColor" aria-label="تظليل النص">▤</button>
+  <div id="miniForePalette" class="mini-color-palette" data-palette="foreColor"></div>
+  <div id="miniBackPalette" class="mini-color-palette" data-palette="backColor"></div>
+</div>
+
+<div id="tableQuickToolbar" class="editor-floating-tools" role="toolbar" aria-label="أدوات الجدول">
+  <button type="button" data-table-action="add-col" aria-label="إضافة عمود">＋ عمود</button>
+  <button type="button" data-table-action="add-row" aria-label="إضافة صف">＋ صف</button>
+  <button type="button" data-table-action="move" aria-label="تحريك الجدول">⠿ نقل</button>
+  <button type="button" data-table-action="fill" aria-label="تظليل الخلايا">▤ لون</button>
+  <div id="tableColorPalette" class="mini-color-palette"></div>
+</div>
+
+<div id="objectSelectionOutline" aria-hidden="true">
+  <button type="button" class="object-rotate-handle" data-handle="rotate" aria-label="تدوير الشكل">↻</button>
+  <span class="object-handle" data-handle="nw"></span><span class="object-handle" data-handle="n"></span>
+  <span class="object-handle" data-handle="ne"></span><span class="object-handle" data-handle="e"></span>
+  <span class="object-handle" data-handle="se"></span><span class="object-handle" data-handle="s"></span>
+  <span class="object-handle" data-handle="sw"></span><span class="object-handle" data-handle="w"></span>
+</div>
+
+<div id="objectQuickToolbar" class="editor-floating-tools" role="toolbar" aria-label="أداة الرسم وتنسيق الكائن">
+  <div class="object-tools-heading"><strong>أداة الرسم</strong><button type="button" id="objectDragButton" aria-label="تحريك الكائن">⠿ تحريك</button></div>
+  <div class="object-tools-row" aria-label="التفاف النص">
+    <button type="button" data-wrap="inline">في السطر مع النص</button>
+    <button type="button" data-wrap="top-bottom">أعلى وأسفل</button>
+    <button type="button" data-wrap="square">مربع</button>
+    <button type="button" data-wrap="front">أمام النص</button>
+    <button type="button" data-wrap="behind">خلف النص</button>
+  </div>
+  <div class="object-tools-row" aria-label="نمط الحد">
+    <button type="button" class="object-border-sample" data-border="none">◯</button>
+    <button type="button" class="object-border-sample" data-border="dashed">- - -</button>
+    <button type="button" class="object-border-sample" data-border="solid">━━━━</button>
+  </div>
+  <div class="object-tools-row" aria-label="لون الحد">
+    <button type="button" class="object-color" data-object-color="#00A6D6" style="color:#00A6D6"></button>
+    <button type="button" class="object-color" data-object-color="#70BF44" style="color:#70BF44"></button>
+    <button type="button" class="object-color" data-object-color="#D8E600" style="color:#D8E600"></button>
+    <button type="button" class="object-color" data-object-color="#F2A900" style="color:#F2A900"></button>
+    <button type="button" class="object-color" data-object-color="#E31B23" style="color:#E31B23"></button>
+    <button type="button" class="object-color" data-object-color="#60646B" style="color:#60646B"></button>
+  </div>
+</div>
+
+<div id="drawingModeBadge">وضع الرسم نشط — المس بإصبعك للرسم <button type="button" id="stopDrawingButton">إنهاء</button></div>
+
 <script>
 (function() {
   const editor = document.getElementById('editor');
   const pageContainer = document.getElementById('pageContainer');
+  const supportedFontFamilies = new Set([
+    'REMOO Noto Sans Arabic', 'REMOO Noto Sans', 'REMOO Noto Serif'
+  ]);
   let currentFontSizePt = 14;
   let currentLineHeight = '1.5';
   let lastSelectedCell = null;
   let lastSelectedImage = null;
+  let lastSelectedObject = null;
+  let lastSelectedTable = null;
+  let savedEditorRange = null;
+  let selectedCells = [];
+  let drawingMode = false;
+  let drawingLayer = null;
   let copiedFormat = null;
 
   let suppressTracking = false;
   let trackChangesEnabled = false;
   let trackedChangeIndex = -1;
 
+  function saveEditorSelection() {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    if (editor.contains(range.commonAncestorContainer)) {
+      savedEditorRange = range.cloneRange();
+    }
+  }
+
+  function restoreEditorSelection() {
+    if (!savedEditorRange || !editor.contains(savedEditorRange.commonAncestorContainer)) return false;
+    const selection = window.getSelection();
+    if (!selection) return false;
+    try {
+      selection.removeAllRanges();
+      selection.addRange(savedEditorRange.cloneRange());
+      return true;
+    } catch (_) {
+      savedEditorRange = null;
+      return false;
+    }
+  }
+
   function focusEditor() {
     if (editor.getAttribute('contenteditable') === 'true') {
-      editor.focus();
+      editor.focus({ preventScroll: true });
+      restoreEditorSelection();
     }
   }
 
@@ -346,6 +596,31 @@
       node = node.parentNode;
     }
     return null;
+  }
+
+  function getSelectedFontName(selection) {
+    let node = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).startContainer : null;
+    if (node && node.nodeType === 3) node = node.parentElement;
+    while (node && node !== editor) {
+      const declared = node.getAttribute && (node.getAttribute('face') || node.style.fontFamily);
+      if (declared) {
+        const family = declared.split(',')[0].replace(/[\"']/g, '').trim();
+        if (supportedFontFamilies.has(family)) return family;
+      }
+      node = node.parentElement;
+    }
+    const queried = (document.queryCommandValue('fontName') || '').replace(/[\"']/g, '').trim();
+    return supportedFontFamilies.has(queried) ? queried : 'REMOO Noto Sans Arabic';
+  }
+
+  function normalizeLegacyFontTags() {
+    editor.querySelectorAll('font[face]').forEach((font) => {
+      const family = (font.getAttribute('face') || '').replace(/[\"']/g, '').trim();
+      if (!supportedFontFamilies.has(family)) return;
+      font.style.fontFamily = '"' + family + '"';
+      font.removeAttribute('face');
+      font.removeAttribute('size');
+    });
   }
 
   function rgbToHex(rgb) {
@@ -396,7 +671,7 @@
         isStrikethrough: document.queryCommandState('strikeThrough'),
         isSuperscript: document.queryCommandState('superscript'),
         isSubscript: document.queryCommandState('subscript'),
-        fontName: (document.queryCommandValue('fontName') || 'Arial').replace(/['"]/g, ''),
+        fontName: getSelectedFontName(sel),
         fontSize: currentFontSizePt,
         foreColor: rgbToHex(document.queryCommandValue('foreColor')) || '#1E293B',
         backColor: rgbToHex(document.queryCommandValue('backColor')) || '',
@@ -432,19 +707,479 @@
     }
   }
 
-  document.addEventListener('selectionchange', notifySelectionState);
+  let miniToolbarDismissed = false;
+  let cellDragStart = null;
+  let cellDragPointer = null;
+  let cellDragOrigin = null;
+  let cellDragActive = false;
+  let skipCellClick = false;
+
+  function placeFloatingElement(element, left, top) {
+    element.classList.add('visible');
+    const width = element.offsetWidth || 220;
+    const height = element.offsetHeight || 44;
+    element.style.left = Math.max(4, Math.min(window.innerWidth - width - 4, left)) + 'px';
+    element.style.top = Math.max(4, Math.min(window.innerHeight - height - 4, top)) + 'px';
+  }
+
+  function updateObjectOutline() {
+    const outline = document.getElementById('objectSelectionOutline');
+    const object = lastSelectedObject;
+    if (!object || !editor.contains(object)) {
+      outline.classList.remove('visible');
+      return;
+    }
+    const rect = object.getBoundingClientRect();
+    outline.style.left = Math.max(0, rect.left) + 'px';
+    outline.style.top = Math.max(0, rect.top) + 'px';
+    outline.style.width = Math.max(28, rect.width) + 'px';
+    outline.style.height = Math.max(28, rect.height) + 'px';
+    outline.classList.add('visible');
+  }
+
+  function updateFloatingTools() {
+    const selection = window.getSelection();
+    const range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+    const mini = document.getElementById('miniFormatToolbar');
+    const tableTools = document.getElementById('tableQuickToolbar');
+    const objectTools = document.getElementById('objectQuickToolbar');
+
+    if (range && editor.contains(range.commonAncestorContainer) && !range.collapsed && selection.toString().trim() && !miniToolbarDismissed) {
+      const rect = range.getBoundingClientRect();
+      mini.classList.add('visible');
+      placeFloatingElement(mini, (rect.left + rect.right - mini.offsetWidth) / 2, rect.top - mini.offsetHeight - 8);
+    } else {
+      mini.classList.remove('visible');
+    }
+
+    const anchor = selection && selection.rangeCount ? selection.getRangeAt(0).startContainer : null;
+    const cell = getClosestTag(anchor, 'td') || getClosestTag(anchor, 'th');
+    if (cell) {
+      lastSelectedCell = cell;
+      lastSelectedTable = getClosestTag(cell, 'table');
+      if (!selectedCells.length || !selectedCells.includes(cell)) selectedCells = [cell];
+      const rect = lastSelectedTable.getBoundingClientRect();
+      placeFloatingElement(tableTools, rect.left, rect.top - tableTools.offsetHeight - 6);
+    } else if (!lastSelectedTable || !editor.contains(lastSelectedTable)) {
+      tableTools.classList.remove('visible');
+    }
+
+    if (lastSelectedObject && editor.contains(lastSelectedObject)) {
+      objectTools.classList.add('visible');
+      objectTools.style.left = '3vw';
+      objectTools.style.right = '3vw';
+      objectTools.style.top = 'auto';
+      objectTools.style.bottom = '8px';
+      updateObjectOutline();
+    } else {
+      objectTools.classList.remove('visible');
+      document.getElementById('objectSelectionOutline').classList.remove('visible');
+    }
+  }
+
+  function populateColorPalette(container, colors, callback) {
+    if (container.dataset.ready === 'true') return;
+    colors.forEach((color) => {
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
+      swatch.className = 'mini-color-swatch';
+      swatch.style.backgroundColor = color;
+      swatch.setAttribute('aria-label', color);
+      swatch.addEventListener('pointerdown', (event) => event.preventDefault());
+      swatch.addEventListener('click', () => callback(color));
+      container.appendChild(swatch);
+    });
+    container.dataset.ready = 'true';
+  }
+
+  const textColors = ['#1E293B', '#DC2626', '#1A56DB', '#059669', '#D97706', '#7C3AED'];
+  const highlightColors = ['#FEF08A', '#BBF7D0', '#BFDBFE', '#FBCFE8', '#FFFFFF'];
+  const miniForePalette = document.getElementById('miniForePalette');
+  const miniBackPalette = document.getElementById('miniBackPalette');
+  populateColorPalette(miniForePalette, textColors, (color) => {
+    restoreEditorSelection(); window.editorApi.setForeColor(color); dismissMiniToolbar();
+  });
+  populateColorPalette(miniBackPalette, highlightColors, (color) => {
+    restoreEditorSelection(); window.editorApi.setBackColor(color); dismissMiniToolbar();
+  });
+  populateColorPalette(document.getElementById('tableColorPalette'), highlightColors, (color) => {
+    window.editorApi.setCellBackground(color);
+    document.getElementById('tableColorPalette').classList.remove('visible');
+  });
+
+  function dismissMiniToolbar() {
+    miniToolbarDismissed = true;
+    document.getElementById('miniFormatToolbar').classList.remove('visible');
+    miniForePalette.classList.remove('visible');
+    miniBackPalette.classList.remove('visible');
+  }
+
+  document.getElementById('miniFormatToolbar').addEventListener('pointerdown', (event) => event.preventDefault());
+  document.getElementById('miniFormatToolbar').addEventListener('click', (event) => {
+    const action = event.target.closest('[data-format-action]');
+    const paletteButton = event.target.closest('[data-format-palette]');
+    if (action) {
+      restoreEditorSelection();
+      const method = { bold: 'toggleBold', italic: 'toggleItalic', underline: 'toggleUnderline' }[action.dataset.formatAction];
+      if (method) window.editorApi[method]();
+      dismissMiniToolbar();
+    } else if (paletteButton) {
+      const palette = paletteButton.dataset.formatPalette === 'foreColor' ? miniForePalette : miniBackPalette;
+      const other = palette === miniForePalette ? miniBackPalette : miniForePalette;
+      other.classList.remove('visible');
+      palette.classList.toggle('visible');
+    }
+  });
+
+  const tableToolbar = document.getElementById('tableQuickToolbar');
+  tableToolbar.addEventListener('pointerdown', (event) => {
+    if (!event.target.closest('[data-table-action="move"]')) event.preventDefault();
+  });
+  tableToolbar.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-table-action]');
+    if (!button || button.dataset.tableAction === 'move') return;
+    if (button.dataset.tableAction === 'add-row') window.editorApi.addTableRow();
+    else if (button.dataset.tableAction === 'add-col') window.editorApi.addTableCol();
+    else if (button.dataset.tableAction === 'fill') document.getElementById('tableColorPalette').classList.toggle('visible');
+  });
+
+  let tableMoveState = null;
+
+  function clearCellRangeStyles() {
+    editor.querySelectorAll('.selected-range-cell').forEach((cell) => cell.classList.remove('selected-range-cell'));
+  }
+
+  function selectCellRectangle(startCell, endCell) {
+    const table = getClosestTag(startCell, 'table');
+    if (!table || getClosestTag(endCell, 'table') !== table) return;
+    const rows = Array.from(table.rows);
+    const startRow = rows.indexOf(startCell.parentElement);
+    const endRow = rows.indexOf(endCell.parentElement);
+    if (startRow < 0 || endRow < 0) return;
+    const top = Math.min(startRow, endRow), bottom = Math.max(startRow, endRow);
+    const left = Math.min(startCell.cellIndex, endCell.cellIndex);
+    const right = Math.max(startCell.cellIndex, endCell.cellIndex);
+    clearCellRangeStyles();
+    selectedCells = [];
+    for (let rowIndex = top; rowIndex <= bottom; rowIndex++) {
+      for (let columnIndex = left; columnIndex <= right; columnIndex++) {
+        const cell = rows[rowIndex].cells[columnIndex];
+        if (cell) {
+          selectedCells.push(cell);
+          cell.classList.add('selected-range-cell');
+        }
+      }
+    }
+    lastSelectedCell = endCell;
+    lastSelectedTable = table;
+    updateFloatingTools();
+    notifySelectionState();
+  }
+
+  function getEditorBlockAtPoint(x, y) {
+    const hit = document.elementsFromPoint(x, y).find((element) => editor.contains(element));
+    if (!hit) return null;
+    let block = hit;
+    while (block && block.parentElement !== editor) block = block.parentElement;
+    return block && block.parentElement === editor ? block : null;
+  }
+
+  editor.addEventListener('pointerdown', (event) => {
+    const cell = event.target.closest && event.target.closest('td, th');
+    if (!cell) return;
+    lastSelectedCell = cell;
+    lastSelectedTable = getClosestTag(cell, 'table');
+    if (!cellDragActive) {
+      clearCellRangeStyles();
+      selectedCells = [cell];
+    }
+    cellDragStart = cell;
+    cellDragPointer = event.pointerId;
+    cellDragOrigin = { x: event.clientX, y: event.clientY };
+    cellDragActive = false;
+  });
+
+  tableToolbar.querySelector('[data-table-action="move"]').addEventListener('pointerdown', (event) => {
+    if (!lastSelectedTable) return;
+    event.preventDefault();
+    tableMoveState = { table: lastSelectedTable, x: event.clientX, y: event.clientY, pointerId: event.pointerId, moved: false };
+  });
+
+  document.addEventListener('pointermove', (event) => {
+    if (cellDragStart && event.pointerId === cellDragPointer && cellDragOrigin) {
+      const distance = Math.hypot(event.clientX - cellDragOrigin.x, event.clientY - cellDragOrigin.y);
+      if (distance > 7) {
+        cellDragActive = true;
+        editor.classList.add('cell-selecting');
+        event.preventDefault();
+        const underPointer = document.elementFromPoint(event.clientX, event.clientY);
+        const endCell = underPointer && underPointer.closest ? underPointer.closest('td, th') : null;
+        if (endCell && getClosestTag(endCell, 'table') === getClosestTag(cellDragStart, 'table')) {
+          selectCellRectangle(cellDragStart, endCell);
+        }
+      }
+    }
+
+    if (tableMoveState && event.pointerId === tableMoveState.pointerId) {
+      if (!tableMoveState.moved && Math.hypot(event.clientX - tableMoveState.x, event.clientY - tableMoveState.y) < 7) return;
+      tableMoveState.moved = true;
+      event.preventDefault();
+      tableMoveState.table.style.opacity = '0.45';
+      const target = getEditorBlockAtPoint(event.clientX, event.clientY);
+      if (target && target !== tableMoveState.table) {
+        const rect = target.getBoundingClientRect();
+        editor.insertBefore(tableMoveState.table, event.clientY < rect.top + rect.height / 2 ? target : target.nextSibling);
+      }
+    }
+  }, { passive: false });
+
+  document.addEventListener('pointerup', (event) => {
+    if (cellDragStart && event.pointerId === cellDragPointer) {
+      editor.classList.remove('cell-selecting');
+      if (!cellDragActive) selectedCells = [cellDragStart];
+      else skipCellClick = true;
+      if (!cellDragActive) lastSelectedCell = cellDragStart;
+      else if (selectedCells.length) lastSelectedCell = selectedCells[selectedCells.length - 1];
+      cellDragStart = null;
+      cellDragPointer = null;
+      cellDragOrigin = null;
+      cellDragActive = false;
+      updateFloatingTools();
+    }
+    if (tableMoveState && event.pointerId === tableMoveState.pointerId) {
+      tableMoveState.table.style.opacity = '';
+      if (tableMoveState.moved) notifyContentChanged();
+      tableMoveState = null;
+    }
+  });
+
+  document.querySelectorAll('#objectQuickToolbar button, #objectSelectionOutline button').forEach((button) => {
+    button.addEventListener('pointerdown', (event) => event.preventDefault());
+  });
+
+  let objectGesture = null;
+  let selectedObjectBorderColor = '#60646B';
+  let selectedObjectBorderStyle = 'solid';
+
+  function beginObjectGesture(event, kind, handle) {
+    if (!lastSelectedObject || !editor.contains(lastSelectedObject)) return;
+    event.preventDefault();
+    const rect = lastSelectedObject.getBoundingClientRect();
+    const computedRotate = parseFloat(getComputedStyle(lastSelectedObject).rotate) || 0;
+    objectGesture = {
+      object: lastSelectedObject, kind, handle,
+      pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+      width: rect.width, height: rect.height,
+      left: parseFloat(lastSelectedObject.style.left) || 0,
+      top: parseFloat(lastSelectedObject.style.top) || 0,
+      rotation: computedRotate,
+      centerX: rect.left + rect.width / 2,
+      centerY: rect.top + rect.height / 2,
+      startAngle: Math.atan2(event.clientY - (rect.top + rect.height / 2), event.clientX - (rect.left + rect.width / 2)) * 180 / Math.PI
+    };
+  }
+
+  document.getElementById('objectDragButton').addEventListener('pointerdown', (event) => beginObjectGesture(event, 'move', 'move'));
+  document.getElementById('objectSelectionOutline').addEventListener('pointerdown', (event) => {
+    const handle = event.target.closest && event.target.closest('[data-handle]');
+    if (handle) beginObjectGesture(event, handle.dataset.handle === 'rotate' ? 'rotate' : 'resize', handle.dataset.handle);
+  });
+
+  document.addEventListener('pointermove', (event) => {
+    if (!objectGesture || event.pointerId !== objectGesture.pointerId) return;
+    event.preventDefault();
+    const dx = event.clientX - objectGesture.startX;
+    const dy = event.clientY - objectGesture.startY;
+    const object = objectGesture.object;
+    if (objectGesture.kind === 'move') {
+      object.style.position = 'relative';
+      object.style.left = (objectGesture.left + dx) + 'px';
+      object.style.top = (objectGesture.top + dy) + 'px';
+    } else if (objectGesture.kind === 'rotate') {
+      const angle = Math.atan2(event.clientY - objectGesture.centerY, event.clientX - objectGesture.centerX) * 180 / Math.PI;
+      object.style.rotate = (objectGesture.rotation + angle - objectGesture.startAngle) + 'deg';
+    } else {
+      const handle = objectGesture.handle;
+      let width = objectGesture.width;
+      let height = objectGesture.height;
+      if (handle.includes('e')) width += dx;
+      if (handle.includes('w')) width -= dx;
+      if (handle.includes('s')) height += dy;
+      if (handle.includes('n')) height -= dy;
+      width = Math.max(36, Math.min(editor.clientWidth, width));
+      height = Math.max(28, Math.min(1200, height));
+      object.style.width = width + 'px';
+      if (object.tagName.toLowerCase() === 'img') {
+        object.style.height = 'auto';
+      } else {
+        object.style.height = height + 'px';
+        const svg = object.querySelector('svg');
+        if (svg) { svg.style.width = '100%'; svg.style.height = '100%'; }
+      }
+    }
+    updateObjectOutline();
+  }, { passive: false });
+
+  document.addEventListener('pointerup', (event) => {
+    if (!objectGesture || event.pointerId !== objectGesture.pointerId) return;
+    objectGesture = null;
+    updateFloatingTools();
+    notifyContentChanged();
+  });
+
+  document.getElementById('objectQuickToolbar').addEventListener('click', (event) => {
+    const wrapButton = event.target.closest('[data-wrap]');
+    const borderButton = event.target.closest('[data-border]');
+    const colorButton = event.target.closest('[data-object-color]');
+    if (!lastSelectedObject) return;
+    if (wrapButton) {
+      const object = lastSelectedObject;
+      object.style.float = '';
+      object.style.clear = '';
+      object.style.zIndex = '';
+      if (wrapButton.dataset.wrap === 'inline') {
+        object.style.display = 'inline-block';
+        object.style.position = 'relative';
+      } else if (wrapButton.dataset.wrap === 'top-bottom') {
+        object.style.display = 'table';
+        object.style.clear = 'both';
+      } else if (wrapButton.dataset.wrap === 'square') {
+        object.style.display = 'inline-block';
+        object.style.float = 'right';
+        object.style.margin = '6px 0 6px 12px';
+      } else if (wrapButton.dataset.wrap === 'front') {
+        object.style.position = 'relative';
+        object.style.zIndex = '2';
+      } else if (wrapButton.dataset.wrap === 'behind') {
+        object.style.position = 'relative';
+        object.style.zIndex = '0';
+      }
+    } else if (borderButton) {
+      selectedObjectBorderStyle = borderButton.dataset.border;
+      lastSelectedObject.style.border = selectedObjectBorderStyle === 'none'
+        ? 'none'
+        : '2px ' + selectedObjectBorderStyle + ' ' + selectedObjectBorderColor;
+    } else if (colorButton) {
+      selectedObjectBorderColor = colorButton.dataset.objectColor;
+      if (selectedObjectBorderStyle !== 'none') {
+        lastSelectedObject.style.border = '2px ' + selectedObjectBorderStyle + ' ' + selectedObjectBorderColor;
+      }
+    }
+    if (wrapButton || borderButton || colorButton) notifyContentChanged();
+  });
+
+  let activeDrawingPath = null;
+
+  function ensureDrawingLayer() {
+    if (drawingLayer && editor.contains(drawingLayer)) return drawingLayer;
+    drawingLayer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    drawingLayer.setAttribute('id', 'remofficeDrawingLayer');
+    drawingLayer.setAttribute('contenteditable', 'false');
+    drawingLayer.classList.add('draw-layer');
+    editor.appendChild(drawingLayer);
+    resizeDrawingLayer();
+    drawingLayer.addEventListener('pointerdown', (event) => {
+      if (!drawingMode) return;
+      event.preventDefault();
+      const rect = editor.getBoundingClientRect();
+      const x = event.clientX - rect.left + editor.scrollLeft;
+      const y = event.clientY - rect.top + editor.scrollTop;
+      activeDrawingPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      activeDrawingPath.setAttribute('d', `M ${x} ${y}`);
+      activeDrawingPath.setAttribute('fill', 'none');
+      activeDrawingPath.setAttribute('stroke', '#1A56DB');
+      activeDrawingPath.setAttribute('stroke-width', '3');
+      activeDrawingPath.setAttribute('stroke-linecap', 'round');
+      activeDrawingPath.setAttribute('stroke-linejoin', 'round');
+      drawingLayer.appendChild(activeDrawingPath);
+      try { drawingLayer.setPointerCapture(event.pointerId); } catch (_) {}
+    });
+    drawingLayer.addEventListener('pointermove', (event) => {
+      if (!drawingMode || !activeDrawingPath) return;
+      const rect = editor.getBoundingClientRect();
+      const x = event.clientX - rect.left + editor.scrollLeft;
+      const y = event.clientY - rect.top + editor.scrollTop;
+      activeDrawingPath.setAttribute('d', activeDrawingPath.getAttribute('d') + ` L ${x} ${y}`);
+    });
+    const finishStroke = () => {
+      if (!activeDrawingPath) return;
+      activeDrawingPath = null;
+      notifyContentChanged();
+    };
+    drawingLayer.addEventListener('pointerup', finishStroke);
+    drawingLayer.addEventListener('pointercancel', finishStroke);
+    return drawingLayer;
+  }
+
+  function resizeDrawingLayer() {
+    if (!drawingLayer) return;
+    const width = Math.max(1, editor.clientWidth);
+    const height = Math.max(editor.clientHeight, editor.scrollHeight, 1);
+    drawingLayer.setAttribute('width', width);
+    drawingLayer.setAttribute('height', height);
+    drawingLayer.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    drawingLayer.style.width = width + 'px';
+    drawingLayer.style.height = height + 'px';
+  }
+
+  function setDrawingMode(enabled) {
+    drawingMode = Boolean(enabled);
+    if (drawingMode) ensureDrawingLayer();
+    editor.classList.toggle('drawing-mode', drawingMode);
+    document.getElementById('drawingModeBadge').classList.toggle('visible', drawingMode);
+    notifySelectionState();
+  }
+
+  document.getElementById('stopDrawingButton').addEventListener('click', () => setDrawingMode(false));
+  if (window.ResizeObserver) {
+    const drawingResizeObserver = new ResizeObserver(resizeDrawingLayer);
+    drawingResizeObserver.observe(editor);
+  } else {
+    window.addEventListener('resize', resizeDrawingLayer);
+  }
+
+  document.addEventListener('scroll', updateFloatingTools, true);
+  window.addEventListener('resize', updateFloatingTools);
+
+  document.addEventListener('selectionchange', function() {
+    saveEditorSelection();
+    notifySelectionState();
+    updateFloatingTools();
+  });
   editor.addEventListener('click', function(e) {
-    if (lastSelectedImage && lastSelectedImage !== e.target) {
+    const image = e.target.closest && e.target.closest('img');
+    const movable = e.target.closest && e.target.closest('img, .text-box, .shape-block');
+    if (lastSelectedImage && lastSelectedImage !== image) {
       lastSelectedImage.classList.remove('selected-img');
       lastSelectedImage = null;
     }
-    if (e.target && e.target.tagName && e.target.tagName.toLowerCase() === 'img') {
-      lastSelectedImage = e.target;
+    if (image) {
+      lastSelectedImage = image;
       lastSelectedImage.classList.add('selected-img');
     }
+    lastSelectedObject = movable && editor.contains(movable) ? movable : null;
+    const cell = e.target.closest && e.target.closest('td, th');
+    if (cell) {
+      lastSelectedCell = cell;
+      lastSelectedTable = getClosestTag(cell, 'table');
+      if (skipCellClick) skipCellClick = false;
+      else { clearCellRangeStyles(); selectedCells = [cell]; }
+    } else {
+      skipCellClick = false;
+      clearCellRangeStyles();
+      selectedCells = [];
+      lastSelectedTable = null;
+      document.getElementById('tableQuickToolbar').classList.remove('visible');
+    }
+    miniToolbarDismissed = false;
     notifySelectionState();
+    updateFloatingTools();
   });
-  editor.addEventListener('keyup', notifySelectionState);
+  editor.addEventListener('keyup', function() {
+    miniToolbarDismissed = false;
+    notifySelectionState();
+    updateFloatingTools();
+  });
   editor.addEventListener('mouseup', function() {
     if (copiedFormat) {
       applyCopiedFormat();
@@ -626,7 +1361,17 @@
       exec(dir === 'rtl' ? 'justifyRight' : 'justifyLeft');
     },
 
-    setFontFamily: (font) => exec('fontName', font),
+    setFontFamily: (font) => {
+      const family = String(font || '').trim();
+      if (!supportedFontFamilies.has(family)) return;
+      focusEditor();
+      restoreEditorSelection();
+      document.execCommand('styleWithCSS', false, true);
+      document.execCommand('fontName', false, family);
+      normalizeLegacyFontTags();
+      notifySelectionState();
+      notifyContentChanged();
+    },
 
     setFontSize: (pt) => {
       currentFontSizePt = Math.max(8, Math.min(72, parseInt(pt, 10) || 14));
@@ -766,8 +1511,9 @@
     setCellBackground: (hex) => {
       const sel = window.getSelection();
       const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
-      if (cell) {
-        cell.style.backgroundColor = hex;
+      const cells = selectedCells.length ? selectedCells : (cell ? [cell] : []);
+      if (cells.length) {
+        cells.forEach((selectedCell) => { selectedCell.style.backgroundColor = hex; });
         notifyContentChanged();
       }
     },
@@ -904,6 +1650,8 @@
       document.execCommand('insertHTML', false, '<hr><p><br></p>');
       notifyContentChanged();
     },
+
+    toggleDrawingMode: () => setDrawingMode(!drawingMode),
 
     setPageConfig: (size, orientation, marginPreset, customMarginMm, columns) => {
       const root = document.documentElement.style;

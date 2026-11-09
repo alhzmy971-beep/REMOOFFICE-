@@ -224,6 +224,9 @@ object EditorCommands {
     fun insertShape(webView: WebView?, shapeType: String) =
         eval(webView, "window.editorApi.insertShape('$shapeType')")
 
+    fun toggleDrawingMode(webView: WebView?) =
+        eval(webView, "window.editorApi.toggleDrawingMode()")
+
     fun insertTextBox(webView: WebView?, text: String) {
         val escaped = JSONObject.quote(text)
         eval(webView, "window.editorApi.insertTextBox($escaped)")
