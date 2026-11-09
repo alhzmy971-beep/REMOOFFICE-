@@ -313,8 +313,10 @@ private fun HomeToolsContent(
         "BLOCKQUOTE" to "اقتباس"
     )
     val fonts = listOf(
-        "REMOO Noto Sans Arabic", "REMOO Noto Sans", "REMOO Noto Serif",
-        "Arial", "Calibri", "Times New Roman", "Georgia", "Roboto"
+        "Amiri", "Cairo", "Tajawal", "Reem Kufi", "Almarai",
+        "Kufi", "El Messiri", "Naskh", "Ruqaa", "Scheherazade", "Lateef", "Changa", "Mada",
+        "Playfair Display", "Merriweather", "Roboto", "Montserrat",
+        "Arial", "Times New Roman", "Georgia", "Courier New", "Tahoma"
     )
     val sizes = listOf(8, 10, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72)
     val colors = listOf(

@@ -3,7 +3,6 @@ package com.example
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -13,7 +12,6 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.webkit.WebResourceRequest
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -114,13 +112,6 @@ import java.io.File
 private enum class AppScreen {
     SPLASH, HOME, EDITOR
 }
-
-private fun isTrustedEditorUrl(uri: Uri?): Boolean =
-    uri != null &&
-        uri.scheme.equals("file", ignoreCase = true) &&
-        uri.authority.isNullOrEmpty() &&
-        uri.path == "/android_asset/editor.html" &&
-        uri.query == null
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -242,23 +233,19 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     val cleanTitle = fileName.substringBeforeLast(".")
                     val isPdf = mime.contains("pdf", ignoreCase = true) ||
                         fileName.endsWith(".pdf", ignoreCase = true)
-                    val lowerName = fileName.lowercase()
-                    val isTxt = mime.contains("text/plain", ignoreCase = true) || lowerName.endsWith(".txt")
-                    val isRtf = mime.contains("rtf", ignoreCase = true) || lowerName.endsWith(".rtf")
-                    val isHtml = mime.contains("html", ignoreCase = true) || lowerName.endsWith(".html") || lowerName.endsWith(".htm")
-                    val isLegacyDoc = (lowerName.endsWith(".doc") || lowerName.endsWith(".dot")) && !lowerName.endsWith(".docx")
-                    val isWord = isLegacyDoc || lowerName.endsWith(".docx") || lowerName.endsWith(".docm") || lowerName.endsWith(".dot") || lowerName.endsWith(".dotx") || lowerName.endsWith(".dotm") || mime.contains("word", ignoreCase = true) || mime.contains("msword", ignoreCase = true)
+                    val isTxt = mime.contains("text/plain", ignoreCase = true) ||
+                        fileName.endsWith(".txt", ignoreCase = true)
 
                     val importedPayload = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use { input ->
                             when {
-                                isPdf -> com.example.model.DocumentPayload(bodyHtml = PdfImporter.pdfToHtml(context, input))
-                                isTxt -> com.example.model.DocumentPayload(bodyHtml = DocxConverter.txtToHtml(input))
-                                isRtf -> com.example.model.DocumentPayload(bodyHtml = DocxConverter.rtfToHtml(input))
-                                isHtml -> DocxConverter.htmlToPayload(input)
-                                isLegacyDoc -> DocxConverter.docToPayload(input)
-                                isWord -> DocxConverter.docxToPayload(input)
-                                else -> com.example.model.DocumentPayload(bodyHtml = DocxConverter.txtToHtml(input))
+                                isPdf -> com.example.model.DocumentPayload(
+                                    bodyHtml = PdfImporter.pdfToHtml(context, input)
+                                )
+                                isTxt -> com.example.model.DocumentPayload(
+                                    bodyHtml = DocxConverter.txtToHtml(input)
+                                )
+                                else -> DocxConverter.docxToPayload(input)
                             }
                         } ?: com.example.model.DocumentPayload()
                     }
@@ -266,8 +253,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     val sourceType = when {
                         isPdf -> "PDF"
                         isTxt -> "TXT"
-                        isRtf || isHtml || isWord -> "WORD"
-                        else -> "TEXT"
+                        else -> "WORD"
                     }
                     val saved = repository.createOrUpdateDocument(
                         id = null,
@@ -358,18 +344,8 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     importDocumentLauncher.launch(
                         arrayOf(
                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            "application/vnd.ms-word",
-                            "application/vnd.ms-word.document.macroEnabled.12",
-                            "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
-                            "application/vnd.ms-word.template.macroEnabled.12",
                             "application/msword",
-                            "application/x-dot",
-                            "application/pdf",
-                            "application/rtf",
-                            "text/rtf",
-                            "text/html",
-                            "text/plain",
-                            "application/octet-stream"
+                            "application/pdf"
                         )
                     )
                 },
@@ -448,34 +424,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     }
 
     BackHandler {
-        // Back is intentionally layered: close the top-most transient UI first,
-        // then read mode/toolbar/tab, then leave the editor for Home.
-        when {
-            showRenameDialog -> showRenameDialog = false
-            showTableDialog -> showTableDialog = false
-            showHyperlinkDialog -> showHyperlinkDialog = false
-            showTextBoxDialog -> showTextBoxDialog = false
-            showCustomMarginDialog -> showCustomMarginDialog = false
-            showFindReplaceDialog -> showFindReplaceDialog = false
-            showAiKeyDialog -> showAiKeyDialog = false
-            showBookmarkDialog -> showBookmarkDialog = false
-            showNoteDialog -> showNoteDialog = false
-            showDocPropertiesDialog -> showDocPropertiesDialog = false
-            showStylesDialog -> showStylesDialog = false
-            showTrackedChangesPanel -> showTrackedChangesPanel = false
-            showCommentsPanel -> showCommentsPanel = false
-            showCommentDialog -> showCommentDialog = false
-            showSignatureDialog -> showSignatureDialog = false
-            showTemplatesDialog -> showTemplatesDialog = false
-            showAiChatBox -> showAiChatBox = false
-            showTopFormattingBar -> showTopFormattingBar = false
-            isReadMode -> {
-                viewModel.setReadMode(false)
-                EditorCommands.setReadMode(webViewRef, false)
-            }
-            activeTab != com.example.model.EditorTab.HOME -> viewModel.selectTab(com.example.model.EditorTab.HOME)
-            else -> currentScreen = AppScreen.HOME
-        }
+        currentScreen = AppScreen.HOME
     }
 
     Scaffold(
@@ -503,18 +452,8 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 importDocumentLauncher.launch(
                                     arrayOf(
                                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                        "application/vnd.ms-word",
-                                        "application/vnd.ms-word.document.macroEnabled.12",
-                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
-                                        "application/vnd.ms-word.template.macroEnabled.12",
                                         "application/msword",
-                                        "application/x-dot",
-                                        "application/pdf",
-                                        "application/rtf",
-                                        "text/rtf",
-                                        "text/html",
-                                        "text/plain",
-                                        "application/octet-stream"
+                                        "application/pdf"
                                     )
                                 )
                             },
@@ -541,52 +480,13 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             settings.allowFileAccessFromFileURLs = false
                             settings.allowUniversalAccessFromFileURLs = false
                             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                            settings.blockNetworkLoads = true
-                            settings.javaScriptCanOpenWindowsAutomatically = false
-                            settings.setSupportMultipleWindows(false)
                             settings.setSupportZoom(true)
                             settings.builtInZoomControls = true
                             settings.displayZoomControls = false
                             webChromeClient = WebChromeClient()
                             webViewClient = object : WebViewClient() {
-                                override fun shouldOverrideUrlLoading(
-                                    view: WebView?,
-                                    request: WebResourceRequest
-                                ): Boolean {
-                                    val uri = request.url
-                                    if (!request.isForMainFrame) return true
-                                    if (isTrustedEditorUrl(uri)) return false
-
-                                    val scheme = uri.scheme?.lowercase()
-                                    if ((scheme == "https" || scheme == "http") &&
-                                        !uri.host.isNullOrBlank() && uri.userInfo == null
-                                    ) {
-                                        runCatching {
-                                            ctx.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                                        }
-                                    }
-                                    return true
-                                }
-
-                                @Suppress("DEPRECATION")
-                                override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                                    val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull()
-                                        ?: return true
-                                    if (isTrustedEditorUrl(uri)) return false
-                                    val scheme = uri.scheme?.lowercase()
-                                    if ((scheme == "https" || scheme == "http") &&
-                                        !uri.host.isNullOrBlank() && uri.userInfo == null
-                                    ) {
-                                        runCatching {
-                                            ctx.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                                        }
-                                    }
-                                    return true
-                                }
-
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
-                                    if (!isTrustedEditorUrl(runCatching { Uri.parse(url.orEmpty()) }.getOrNull())) return
                                     EditorCommands.setDocumentPayload(
                                         view,
                                         documentPayload.bodyHtml,
@@ -758,18 +658,8 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 importDocumentLauncher.launch(
                                     arrayOf(
                                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                        "application/vnd.ms-word",
-                                        "application/vnd.ms-word.document.macroEnabled.12",
-                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
-                                        "application/vnd.ms-word.template.macroEnabled.12",
-                                        "application/msword",
-                                        "application/x-dot",
                                         "application/pdf",
-                                        "application/rtf",
-                                        "text/rtf",
-                                        "text/html",
-                                        "text/plain",
-                                        "application/octet-stream"
+                                        "text/plain"
                                     )
                                 )
                             },

@@ -135,6 +135,20 @@ data class DocumentNote(
     val anchor: DocumentAnchor? = null
 )
 
+data class DocumentImportReport(
+    val paragraphCount: Int = 0,
+    val tableCount: Int = 0,
+    val imageCount: Int = 0,
+    val smartArtCount: Int = 0,
+    val chartCount: Int = 0,
+    val fieldCount: Int = 0,
+    val noteCount: Int = 0,
+    val svgConvertedCount: Int = 0,
+    val imageFallbackCount: Int = 0,
+    val unsupportedCount: Int = 0,
+    val unsupportedReasons: List<String> = emptyList()
+)
+
 data class DocumentPayload(
     val bodyHtml: String = "<p><br></p>",
     val headerHtml: String = "",
@@ -145,7 +159,8 @@ data class DocumentPayload(
     val styles: List<DocumentStyle> = emptyList(),
     val bookmarks: List<DocumentBookmark> = emptyList(),
     val notes: List<DocumentNote> = emptyList(),
-    val properties: DocumentProperties = DocumentProperties()
+    val properties: DocumentProperties = DocumentProperties(),
+    val importReport: DocumentImportReport? = null
 )
 
 data class EditorSelectionState(

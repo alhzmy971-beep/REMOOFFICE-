@@ -285,132 +285,88 @@ object DocxConverter {
         }
     }
 
-    private fun escapeHtml(value: String): String = value
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-
-    private fun paragraphAlignment(p: XWPFParagraph): String = when (p.alignment) {
-        ParagraphAlignment.CENTER -> "center"
-        ParagraphAlignment.RIGHT -> "right"
-        ParagraphAlignment.BOTH -> "justify"
-        else -> "left"
-    }
-
-    private fun runHtml(run: XWPFRun): String {
-        val styles = mutableListOf<String>()
-        run.color?.let { styles.add("color: #$it") }
-        run.fontFamily?.let { styles.add("font-family: '${escapeHtml(it)}'") }
-        if ((run.fontSizeAsDouble ?: 0.0) > 0) styles.add("font-size: ${run.fontSizeAsDouble.toInt()}pt")
-        var text = escapeHtml(run.text() ?: "").replace("\n", "<br>").replace("\t", "&emsp;")
-        if (text.isEmpty()) text = ""
-        var wrapped = if (styles.isEmpty()) text else "<span style=\"${styles.joinToString("; ")}\">$text</span>"
-        if (run.isBold) wrapped = "<b>$wrapped</b>"
-        if (run.isItalic) wrapped = "<i>$wrapped</i>"
-        if (run.underline != UnderlinePatterns.NONE) wrapped = "<u>$wrapped</u>"
-        if (run.isStrikeThrough) wrapped = "<s>$wrapped</s>"
-        return wrapped
-    }
-
-    private fun pictureHtml(run: XWPFRun): String {
-        val out = StringBuilder()
-        for (picture in run.embeddedPictures) {
-            try {
-                val data = picture.pictureData.data
-                val mime = when (picture.pictureData.pictureType) {
-                    XWPFDocument.PICTURE_TYPE_PNG -> "image/png"
-                    XWPFDocument.PICTURE_TYPE_GIF -> "image/gif"
-                    XWPFDocument.PICTURE_TYPE_BMP -> "image/bmp"
-                    else -> "image/jpeg"
-                }
-                val encoded = Base64.encodeToString(data, Base64.NO_WRAP)
-                out.append("<p><img src=\"data:$mime;base64,$encoded\" style=\"max-width:100%;\" /></p>")
-            } catch (_: Exception) { }
-        }
-        return out.toString()
-    }
-
-    private fun paragraphHtml(p: XWPFParagraph): String {
-        val body = StringBuilder()
-        for (run in p.runs) {
-            body.append(runHtml(run)).append(pictureHtml(run))
-        }
-        if (body.isEmpty()) body.append("<br>")
-        return "<p style=\"text-align: ${paragraphAlignment(p)};\">$body</p>"
-    }
-
-    private fun tableHtml(table: XWPFTable): String {
-        val sb = StringBuilder("<table><tbody>")
-        for (row in table.rows) {
-            sb.append("<tr>")
-            for (cell in row.tableCells) {
-                val content = StringBuilder()
-                for (paragraph in cell.paragraphs) content.append(paragraphHtml(paragraph))
-                for (nested in cell.tables) content.append(tableHtml(nested))
-                sb.append("<td>").append(if (content.isEmpty()) "<br>" else content).append("</td>")
-            }
-            sb.append("</tr>")
-        }
-        return sb.append("</tbody></table>").toString()
-    }
-
     fun docxToPayload(inputStream: InputStream): DocumentPayload {
         val document = XWPFDocument(inputStream)
         val sb = StringBuilder()
-        val headerHtml = document.headerList.flatMap { it.paragraphs }.joinToString("") { paragraphHtml(it) }
-        val footerHtml = document.footerList.flatMap { it.paragraphs }.joinToString("") { paragraphHtml(it) }
+
+        val headerHtml = document.headerList.firstOrNull()?.text?.trim()?.let {
+            if (it.isNotEmpty()) "<p>$it</p>" else ""
+        } ?: ""
+
+        val footerHtml = document.footerList.firstOrNull()?.text?.trim()?.let {
+            if (it.isNotEmpty()) "<p>$it</p>" else ""
+        } ?: ""
+
         for (element in document.bodyElements) {
             when (element.elementType) {
-                BodyElementType.PARAGRAPH -> sb.append(paragraphHtml(element as XWPFParagraph))
-                BodyElementType.TABLE -> sb.append(tableHtml(element as XWPFTable))
-                else -> { }
+                BodyElementType.PARAGRAPH -> {
+                    val p = element as XWPFParagraph
+                    val align = when (p.alignment) {
+                        ParagraphAlignment.CENTER -> "center"
+                        ParagraphAlignment.RIGHT -> "right"
+                        ParagraphAlignment.BOTH -> "justify"
+                        else -> "left"
+                    }
+                    sb.append("<p style=\"text-align: $align;\">")
+                    if (p.runs.isEmpty()) {
+                        sb.append("<br>")
+                    } else {
+                        for (run in p.runs) {
+                            var text = run.text() ?: ""
+                            text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                            if (text.isEmpty()) continue
+                            val styles = mutableListOf<String>()
+                            run.color?.let { styles.add("color: #$it") }
+                            run.fontFamily?.let { styles.add("font-family: '$it'") }
+                            if (run.fontSizeAsDouble != null && run.fontSizeAsDouble > 0) {
+                                styles.add("font-size: ${run.fontSizeAsDouble.toInt()}pt")
+                            }
+                            var wrapped = if (styles.isNotEmpty()) {
+                                "<span style=\"${styles.joinToString("; ")}\">$text</span>"
+                            } else {
+                                text
+                            }
+                            if (run.isBold) wrapped = "<b>$wrapped</b>"
+                            if (run.isItalic) wrapped = "<i>$wrapped</i>"
+                            if (run.underline != UnderlinePatterns.NONE) wrapped = "<u>$wrapped</u>"
+                            if (run.isStrikeThrough) wrapped = "<s>$wrapped</s>"
+                            sb.append(wrapped)
+                        }
+                    }
+                    sb.append("</p>")
+                }
+                BodyElementType.TABLE -> {
+                    val table = element as XWPFTable
+                    sb.append("<table><tbody>")
+                    for (row in table.rows) {
+                        sb.append("<tr>")
+                        for (cell in row.tableCells) {
+                            val cellText = cell.text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                            sb.append("<td>${cellText.ifEmpty { "<br>" }}</td>")
+                        }
+                        sb.append("</tr>")
+                    }
+                    sb.append("</tbody></table>")
+                }
+                else -> {}
             }
         }
         document.close()
+        val bodyHtml = HtmlSanitizer.sanitizeHtml(sb.toString().ifBlank { "<p><br></p>" })
         return DocumentPayload(
-            bodyHtml = HtmlSanitizer.sanitizeHtml(sb.toString().ifBlank { "<p><br></p>" }),
-            headerHtml = HtmlSanitizer.sanitizeHtml(headerHtml),
-            footerHtml = HtmlSanitizer.sanitizeHtml(footerHtml)
+            bodyHtml = bodyHtml,
+            headerHtml = headerHtml,
+            footerHtml = footerHtml
         )
     }
 
-    fun docToPayload(inputStream: InputStream): DocumentPayload {
-        val document = org.apache.poi.hwpf.HWPFDocument(inputStream)
-        val extractor = org.apache.poi.hwpf.extractor.WordExtractor(document)
+    fun txtToHtml(inputStream: InputStream): String {
+        val text = inputStream.bufferedReader(Charsets.UTF_8).readText()
         val sb = StringBuilder()
-        extractor.paragraphText.forEach { paragraph ->
-            val escaped = escapeHtml(paragraph.trimEnd('\r', '\n'))
-            sb.append("<p>").append(if (escaped.isBlank()) "<br>" else escaped.replace("\t", "&emsp;")).append("</p>")
-        }
-        extractor.close(); document.close()
-        return DocumentPayload(bodyHtml = HtmlSanitizer.sanitizeHtml(sb.toString().ifBlank { "<p><br></p>" }))
-    }
-
-    fun htmlToPayload(inputStream: InputStream): DocumentPayload {
-        val html = inputStream.bufferedReader(Charsets.UTF_8).readText()
-        val body = Jsoup.parse(html).body().html()
-        return DocumentPayload(bodyHtml = HtmlSanitizer.sanitizeHtml(body.ifBlank { "<p><br></p>" }))
-    }
-
-    private fun plainTextToHtml(text: String): String {
-        val sb = StringBuilder()
-        text.split("\r\n", "\n", "\r").forEach { line ->
-            val escaped = escapeHtml(line)
+        text.lines().forEach { line ->
+            val escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             sb.append("<p>${escaped.ifEmpty { "<br>" }}</p>")
         }
         return sb.toString().ifBlank { "<p><br></p>" }
     }
-
-    fun rtfToHtml(inputStream: InputStream): String {
-        val raw = inputStream.bufferedReader(Charsets.ISO_8859_1).readText()
-        val text = raw.replace(Regex("\\\\'[0-9a-fA-F]{2}"), "")
-            .replace(Regex("\\\\[a-zA-Z]+-?\\d* ?"), "")
-            .replace(Regex("[{}]"), "")
-        return plainTextToHtml(text)
-    }
-
-    fun txtToHtml(inputStream: InputStream): String = plainTextToHtml(
-        inputStream.bufferedReader(Charsets.UTF_8).readText()
-    )
 }
