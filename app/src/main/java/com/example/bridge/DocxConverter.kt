@@ -289,7 +289,7 @@ object DocxConverter {
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
-        .replace('"', "&quot;")
+        .replace("\"", "&quot;")
 
     private fun paragraphAlignment(p: XWPFParagraph): String = when (p.alignment) {
         ParagraphAlignment.CENTER -> "center"
@@ -393,16 +393,7 @@ object DocxConverter {
         return DocumentPayload(bodyHtml = HtmlSanitizer.sanitizeHtml(body.ifBlank { "<p><br></p>" }))
     }
 
-    fun rtfToHtml(inputStream: InputStream): String {
-        val raw = inputStream.bufferedReader(Charsets.ISO_8859_1).readText()
-        val text = raw.replace(Regex("\\\\'[0-9a-fA-F]{2}"), "")
-            .replace(Regex("\\\\[a-zA-Z]+-?\\d* ?"), "")
-            .replace(Regex("[{}]"), "")
-        return txtToHtml(text)
-    }
-
-    fun txtToHtml(inputStream: InputStream): String {
-        val text = inputStream.bufferedReader(Charsets.UTF_8).readText()
+    private fun plainTextToHtml(text: String): String {
         val sb = StringBuilder()
         text.split("\r\n", "\n", "\r").forEach { line ->
             val escaped = escapeHtml(line)
@@ -410,4 +401,16 @@ object DocxConverter {
         }
         return sb.toString().ifBlank { "<p><br></p>" }
     }
+
+    fun rtfToHtml(inputStream: InputStream): String {
+        val raw = inputStream.bufferedReader(Charsets.ISO_8859_1).readText()
+        val text = raw.replace(Regex("\\\\'[0-9a-fA-F]{2}"), "")
+            .replace(Regex("\\\\[a-zA-Z]+-?\\d* ?"), "")
+            .replace(Regex("[{}]"), "")
+        return plainTextToHtml(text)
+    }
+
+    fun txtToHtml(inputStream: InputStream): String = plainTextToHtml(
+        inputStream.bufferedReader(Charsets.UTF_8).readText()
+    )
 }

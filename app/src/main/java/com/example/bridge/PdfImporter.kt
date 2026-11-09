@@ -22,7 +22,6 @@ object PdfImporter {
         try {
             val stripper = PDFTextStripper().apply {
                 sortByPosition = true
-                shouldSeparateByBeads = false
             }
             val renderer = PDFRenderer(document)
             val sb = StringBuilder()
