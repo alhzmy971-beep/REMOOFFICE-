@@ -242,19 +242,23 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     val cleanTitle = fileName.substringBeforeLast(".")
                     val isPdf = mime.contains("pdf", ignoreCase = true) ||
                         fileName.endsWith(".pdf", ignoreCase = true)
-                    val isTxt = mime.contains("text/plain", ignoreCase = true) ||
-                        fileName.endsWith(".txt", ignoreCase = true)
+                    val lowerName = fileName.lowercase()
+                    val isTxt = mime.contains("text/plain", ignoreCase = true) || lowerName.endsWith(".txt")
+                    val isRtf = mime.contains("rtf", ignoreCase = true) || lowerName.endsWith(".rtf")
+                    val isHtml = mime.contains("html", ignoreCase = true) || lowerName.endsWith(".html") || lowerName.endsWith(".htm")
+                    val isLegacyDoc = lowerName.endsWith(".doc") && !lowerName.endsWith(".docx")
+                    val isWord = isLegacyDoc || lowerName.endsWith(".docx") || lowerName.endsWith(".docm") || lowerName.endsWith(".dotx") || lowerName.endsWith(".dotm") || mime.contains("word", ignoreCase = true) || mime.contains("msword", ignoreCase = true)
 
                     val importedPayload = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use { input ->
                             when {
-                                isPdf -> com.example.model.DocumentPayload(
-                                    bodyHtml = PdfImporter.pdfToHtml(context, input)
-                                )
-                                isTxt -> com.example.model.DocumentPayload(
-                                    bodyHtml = DocxConverter.txtToHtml(input)
-                                )
-                                else -> DocxConverter.docxToPayload(input)
+                                isPdf -> com.example.model.DocumentPayload(bodyHtml = PdfImporter.pdfToHtml(context, input))
+                                isTxt -> com.example.model.DocumentPayload(bodyHtml = DocxConverter.txtToHtml(input))
+                                isRtf -> com.example.model.DocumentPayload(bodyHtml = DocxConverter.rtfToHtml(input))
+                                isHtml -> DocxConverter.htmlToPayload(input)
+                                isLegacyDoc -> DocxConverter.docToPayload(input)
+                                isWord -> DocxConverter.docxToPayload(input)
+                                else -> com.example.model.DocumentPayload(bodyHtml = DocxConverter.txtToHtml(input))
                             }
                         } ?: com.example.model.DocumentPayload()
                     }
@@ -262,7 +266,8 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     val sourceType = when {
                         isPdf -> "PDF"
                         isTxt -> "TXT"
-                        else -> "WORD"
+                        isRtf || isHtml || isWord -> "WORD"
+                        else -> "TEXT"
                     }
                     val saved = repository.createOrUpdateDocument(
                         id = null,
@@ -353,8 +358,17 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     importDocumentLauncher.launch(
                         arrayOf(
                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            "application/vnd.ms-word",
+                            "application/vnd.ms-word.document.macroEnabled.12",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+                            "application/vnd.ms-word.template.macroEnabled.12",
                             "application/msword",
-                            "application/pdf"
+                            "application/pdf",
+                            "application/rtf",
+                            "text/rtf",
+                            "text/html",
+                            "text/plain",
+                            "application/octet-stream"
                         )
                     )
                 },
@@ -488,8 +502,17 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 importDocumentLauncher.launch(
                                     arrayOf(
                                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        "application/vnd.ms-word",
+                                        "application/vnd.ms-word.document.macroEnabled.12",
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+                                        "application/vnd.ms-word.template.macroEnabled.12",
                                         "application/msword",
-                                        "application/pdf"
+                                        "application/pdf",
+                                        "application/rtf",
+                                        "text/rtf",
+                                        "text/html",
+                                        "text/plain",
+                                        "application/octet-stream"
                                     )
                                 )
                             },
@@ -733,8 +756,17 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 importDocumentLauncher.launch(
                                     arrayOf(
                                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        "application/vnd.ms-word",
+                                        "application/vnd.ms-word.document.macroEnabled.12",
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+                                        "application/vnd.ms-word.template.macroEnabled.12",
+                                        "application/msword",
                                         "application/pdf",
-                                        "text/plain"
+                                        "application/rtf",
+                                        "text/rtf",
+                                        "text/html",
+                                        "text/plain",
+                                        "application/octet-stream"
                                     )
                                 )
                             },

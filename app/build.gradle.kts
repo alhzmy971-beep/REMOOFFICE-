@@ -143,6 +143,7 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.poi.ooxml)
+  implementation(libs.poi.scratchpad)
   implementation(libs.jsoup)
   implementation(libs.pdfbox.android)
   // implementation(libs.play.services.location)
