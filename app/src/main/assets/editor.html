@@ -12,21 +12,21 @@
     src: url('fonts/NotoSansArabic-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: swap;
+    font-display: block;
   }
   @font-face {
     font-family: 'REMOO Noto Sans';
     src: url('fonts/NotoSans-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: swap;
+    font-display: block;
   }
   @font-face {
     font-family: 'REMOO Noto Serif';
     src: url('fonts/NotoSerif-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: swap;
+    font-display: block;
   }
 
   :root {
@@ -291,13 +291,51 @@
     border: 1px solid #94A3B8 !important;
   }
 
-  #tableQuickToolbar {
-    align-items: center;
-    gap: 4px;
-    padding: 4px;
+  /* Touch table controls: positioned around the table, never over its cells. */
+  .table-selection-chrome {
+    position: absolute;
+    display: none;
+    z-index: 40;
+    pointer-events: none;
+    direction: ltr;
   }
+  .table-selection-chrome.visible { display: block; }
+  .table-selection-chrome button {
+    pointer-events: auto;
+    min-width: 34px;
+    min-height: 30px;
+    border: 1px solid #94A3B8;
+    background: #FFFFFF;
+    color: #334155;
+    border-radius: 3px;
+    font: 15px 'REMOO Noto Sans', 'REMOO Noto Sans Arabic', sans-serif;
+    padding: 2px 8px;
+    touch-action: manipulation;
+  }
+  .table-selection-chrome button:active,
+  .table-selection-chrome button.active { background: #90CAF9; color: #0F172A; }
+  .table-col-handles {
+    position: absolute;
+    left: 0;
+    top: -34px;
+    width: 100%;
+    height: 30px;
+    display: grid;
+    gap: 0;
+  }
+  .table-row-handles {
+    position: absolute;
+    right: -40px;
+    top: 0;
+    width: 36px;
+    display: grid;
+    gap: 0;
+  }
+  .table-add-col { position: absolute; left: -42px; top: -34px; border-radius: 50% !important; font-size: 25px !important; line-height: 24px; padding: 0 !important; }
+  .table-move { position: absolute; right: -42px; top: -34px; border-radius: 50% !important; font-size: 19px !important; line-height: 24px; padding: 0 !important; }
+  .table-add-row { position: absolute; right: -42px; top: 50%; transform: translateY(-50%); border-radius: 50% !important; font-size: 25px !important; line-height: 24px; padding: 0 !important; }
+  .table-selection-chrome .selected { background: #90CAF9; }
 
-  #tableQuickToolbar button { min-width: 40px; }
 
   #objectQuickToolbar {
     display: none;
@@ -493,12 +531,12 @@
   <div id="miniBackPalette" class="mini-color-palette" data-palette="backColor"></div>
 </div>
 
-<div id="tableQuickToolbar" class="editor-floating-tools" role="toolbar" aria-label="أدوات الجدول">
-  <button type="button" data-table-action="add-col" aria-label="إضافة عمود">＋ عمود</button>
-  <button type="button" data-table-action="add-row" aria-label="إضافة صف">＋ صف</button>
-  <button type="button" data-table-action="move" aria-label="تحريك الجدول">⠿ نقل</button>
-  <button type="button" data-table-action="fill" aria-label="تظليل الخلايا">▤ لون</button>
-  <div id="tableColorPalette" class="mini-color-palette"></div>
+<div id="tableSelectionChrome" class="table-selection-chrome" aria-label="أدوات تحديد الجدول">
+  <button type="button" class="table-add-col" data-table-action="add-col" aria-label="إضافة عمود">＋</button>
+  <div class="table-col-handles" aria-label="أعمدة الجدول"></div>
+  <button type="button" class="table-move" data-table-action="move" aria-label="تحريك الجدول">↕</button>
+  <div class="table-row-handles" aria-label="صفوف الجدول"></div>
+  <button type="button" class="table-add-row" data-table-action="add-row" aria-label="إضافة صف">＋</button>
 </div>
 
 <div id="objectSelectionOutline" aria-hidden="true">
@@ -540,7 +578,7 @@
   const editor = document.getElementById('editor');
   const pageContainer = document.getElementById('pageContainer');
   const supportedFontFamilies = new Set([
-    'REMOO Noto Sans Arabic', 'REMOO Noto Sans', 'REMOO Noto Serif'
+    'REMOO Noto Sans Arabic', 'REMOO Noto Sans', 'REMOO Noto Serif', 'Arial', 'Calibri', 'Times New Roman', 'Georgia', 'Roboto'
   ]);
   let currentFontSizePt = 14;
   let currentLineHeight = '1.5';
@@ -557,6 +595,8 @@
   let suppressTracking = false;
   let trackChangesEnabled = false;
   let trackedChangeIndex = -1;
+  let tableChrome = null;
+  let tableMoveState = null;
 
   function saveEditorSelection() {
     const selection = window.getSelection();
@@ -737,42 +777,56 @@
     outline.classList.add('visible');
   }
 
+  function updateTableChrome() {
+    const chrome = document.getElementById('tableSelectionChrome');
+    if (!chrome) return;
+    const table = lastSelectedTable;
+    if (!table || !editor.contains(table)) { chrome.classList.remove('visible'); return; }
+    const editorRect = editor.getBoundingClientRect();
+    const tableRect = table.getBoundingClientRect();
+    chrome.style.left = (tableRect.left - editorRect.left + editor.scrollLeft) + 'px';
+    chrome.style.top = (tableRect.top - editorRect.top + editor.scrollTop) + 'px';
+    chrome.style.width = tableRect.width + 'px';
+    chrome.style.height = tableRect.height + 'px';
+    const cols = Math.max(1, table.rows[0] ? table.rows[0].cells.length : 1);
+    const rows = Math.max(1, table.rows.length);
+    const colBox = chrome.querySelector('.table-col-handles');
+    const rowBox = chrome.querySelector('.table-row-handles');
+    colBox.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    rowBox.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    colBox.innerHTML = '';
+    rowBox.innerHTML = '';
+    for (let c = 0; c < cols; c++) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = String.fromCharCode(65 + c);
+      b.dataset.tableSelectColumn = String(c);
+      b.className = selectedCells.some(x => x.cellIndex === c) ? 'selected' : '';
+      colBox.appendChild(b);
+    }
+    for (let r = 0; r < rows; r++) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = String(r + 1);
+      b.dataset.tableSelectRow = String(r);
+      b.className = selectedCells.some(x => x.parentElement === table.rows[r]) ? 'selected' : '';
+      rowBox.appendChild(b);
+    }
+    chrome.classList.add('visible');
+  }
+
   function updateFloatingTools() {
     const selection = window.getSelection();
     const range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
     const mini = document.getElementById('miniFormatToolbar');
-    const tableTools = document.getElementById('tableQuickToolbar');
-    const objectTools = document.getElementById('objectQuickToolbar');
-
     if (range && editor.contains(range.commonAncestorContainer) && !range.collapsed && selection.toString().trim() && !miniToolbarDismissed) {
       const rect = range.getBoundingClientRect();
-      mini.classList.add('visible');
       placeFloatingElement(mini, (rect.left + rect.right - mini.offsetWidth) / 2, rect.top - mini.offsetHeight - 8);
-    } else {
-      mini.classList.remove('visible');
-    }
-
-    const anchor = selection && selection.rangeCount ? selection.getRangeAt(0).startContainer : null;
-    const cell = getClosestTag(anchor, 'td') || getClosestTag(anchor, 'th');
-    if (cell) {
-      lastSelectedCell = cell;
-      lastSelectedTable = getClosestTag(cell, 'table');
-      if (!selectedCells.length || !selectedCells.includes(cell)) selectedCells = [cell];
-      const rect = lastSelectedTable.getBoundingClientRect();
-      placeFloatingElement(tableTools, rect.left, rect.top - tableTools.offsetHeight - 6);
-    } else if (!lastSelectedTable || !editor.contains(lastSelectedTable)) {
-      tableTools.classList.remove('visible');
-    }
-
+    } else mini.classList.remove('visible');
+    updateTableChrome();
     if (lastSelectedObject && editor.contains(lastSelectedObject)) {
-      objectTools.classList.add('visible');
-      objectTools.style.left = '3vw';
-      objectTools.style.right = '3vw';
-      objectTools.style.top = 'auto';
-      objectTools.style.bottom = '8px';
-      updateObjectOutline();
+      const objectTools = document.getElementById('objectQuickToolbar');
+      objectTools.classList.add('visible'); objectTools.style.left = '3vw'; objectTools.style.right = '3vw'; objectTools.style.top = 'auto'; objectTools.style.bottom = '8px'; updateObjectOutline();
     } else {
-      objectTools.classList.remove('visible');
+      document.getElementById('objectQuickToolbar').classList.remove('visible');
       document.getElementById('objectSelectionOutline').classList.remove('visible');
     }
   }
@@ -802,10 +856,6 @@
   populateColorPalette(miniBackPalette, highlightColors, (color) => {
     restoreEditorSelection(); window.editorApi.setBackColor(color); dismissMiniToolbar();
   });
-  populateColorPalette(document.getElementById('tableColorPalette'), highlightColors, (color) => {
-    window.editorApi.setCellBackground(color);
-    document.getElementById('tableColorPalette').classList.remove('visible');
-  });
 
   function dismissMiniToolbar() {
     miniToolbarDismissed = true;
@@ -831,19 +881,30 @@
     }
   });
 
-  const tableToolbar = document.getElementById('tableQuickToolbar');
-  tableToolbar.addEventListener('pointerdown', (event) => {
-    if (!event.target.closest('[data-table-action="move"]')) event.preventDefault();
+  const tableChromeElement = document.getElementById('tableSelectionChrome');
+  tableChromeElement.addEventListener('pointerdown', (event) => {
+    const button = event.target.closest('[data-table-action="move"]');
+    if (button && lastSelectedTable) {
+      event.preventDefault();
+      tableMoveState = { table: lastSelectedTable, x: event.clientX, y: event.clientY, pointerId: event.pointerId, moved: false };
+    }
   });
-  tableToolbar.addEventListener('click', (event) => {
+  tableChromeElement.addEventListener('click', (event) => {
     const button = event.target.closest('[data-table-action]');
-    if (!button || button.dataset.tableAction === 'move') return;
-    if (button.dataset.tableAction === 'add-row') window.editorApi.addTableRow();
-    else if (button.dataset.tableAction === 'add-col') window.editorApi.addTableCol();
-    else if (button.dataset.tableAction === 'fill') document.getElementById('tableColorPalette').classList.toggle('visible');
+    if (button && button.dataset.tableAction === 'add-row') window.editorApi.addTableRow();
+    else if (button && button.dataset.tableAction === 'add-col') window.editorApi.addTableCol();
+    const colButton = event.target.closest('[data-table-select-column]');
+    const rowButton = event.target.closest('[data-table-select-row]');
+    if (colButton && lastSelectedTable) {
+      const c = Number(colButton.dataset.tableSelectColumn);
+      selectedCells = Array.from(lastSelectedTable.rows).map(r => r.cells[c]).filter(Boolean);
+      clearCellRangeStyles(); selectedCells.forEach(cell => cell.classList.add('selected-range-cell')); lastSelectedCell = selectedCells[0] || null; updateFloatingTools(); notifySelectionState();
+    } else if (rowButton && lastSelectedTable) {
+      const r = Number(rowButton.dataset.tableSelectRow);
+      selectedCells = Array.from(lastSelectedTable.rows[r]?.cells || []);
+      clearCellRangeStyles(); selectedCells.forEach(cell => cell.classList.add('selected-range-cell')); lastSelectedCell = selectedCells[0] || null; updateFloatingTools(); notifySelectionState();
+    }
   });
-
-  let tableMoveState = null;
 
   function clearCellRangeStyles() {
     editor.querySelectorAll('.selected-range-cell').forEach((cell) => cell.classList.remove('selected-range-cell'));
@@ -899,11 +960,6 @@
     cellDragActive = false;
   });
 
-  tableToolbar.querySelector('[data-table-action="move"]').addEventListener('pointerdown', (event) => {
-    if (!lastSelectedTable) return;
-    event.preventDefault();
-    tableMoveState = { table: lastSelectedTable, x: event.clientX, y: event.clientY, pointerId: event.pointerId, moved: false };
-  });
 
   document.addEventListener('pointermove', (event) => {
     if (cellDragStart && event.pointerId === cellDragPointer && cellDragOrigin) {
@@ -950,6 +1006,7 @@
       tableMoveState.table.style.opacity = '';
       if (tableMoveState.moved) notifyContentChanged();
       tableMoveState = null;
+      updateTableChrome();
     }
   });
 
@@ -1169,7 +1226,7 @@
       clearCellRangeStyles();
       selectedCells = [];
       lastSelectedTable = null;
-      document.getElementById('tableQuickToolbar').classList.remove('visible');
+      document.getElementById('tableSelectionChrome').classList.remove('visible');
     }
     miniToolbarDismissed = false;
     notifySelectionState();
