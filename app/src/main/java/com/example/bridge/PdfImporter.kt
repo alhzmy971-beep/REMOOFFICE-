@@ -44,12 +44,12 @@ object PdfImporter {
                         val bytes = ByteArrayOutputStream()
                         bitmap.compress(Bitmap.CompressFormat.JPEG, 85, bytes)
                         bitmap.recycle()
-                        sb.append("<p><img src="data:image/jpeg;base64,")
+                        sb.append("<p><img src=\"data:image/jpeg;base64,")
                             .append(Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP))
-                            .append("" style="width:100%;" /></p>")
+                            .append("\" style=\"width:100%;\" /></p>")
                     } catch (_: Exception) { sb.append("<p>صفحة ${index + 1} غير قابلة للاستخراج النصي.</p>") }
                 }
-                if (index < document.numberOfPages - 1) sb.append("<div class="page-break" contenteditable="false"></div>")
+                if (index < document.numberOfPages - 1) sb.append("<div class=\"page-break\" contenteditable=\"false\"></div>")
             }
             return sb.toString().ifBlank { "<p><br></p>" }
         } finally { document.close() }
