@@ -38,4 +38,23 @@ class FontFilesValidationTest {
         assertTrue(content.contains("lastValidSelectionRange"))
         assertFalse("يجب عدم الاعتماد على شبكات خارجية للخطوط", content.contains("fonts.googleapis.com"))
     }
+
+    @Test
+    fun allBundledFonts_areMappedAndConfiguredInCssAndJs() {
+        val editorHtml = File("src/main/assets/editor.html")
+        val content = editorHtml.readText(Charsets.UTF_8)
+        val bundledFonts = listOf(
+            "Amiri", "Cairo", "Tajawal", "Almarai", "Reem Kufi",
+            "Lalezar", "Lemonada", "Kufam", "Noto Naskh Arabic", "Aref Ruqaa",
+            "Poppins", "Open Sans", "Montserrat", "Roboto", "Playfair Display",
+            "Merriweather"
+        )
+
+        for (font in bundledFonts) {
+            assertTrue("يجب أن يحتوي editor.html على تعريف @font-face لـ $font", content.contains("font-family: '$font'"))
+        }
+
+        assertTrue("يجب أن يدعم setFontFamily حفظ الخط الحالي وعدم العودة للافتراضي", content.contains("currentFontFamily = font"))
+        assertTrue("يجب تطبيق style.fontFamily على العناصر المحددة", content.contains("el.style.fontFamily"))
+    }
 }

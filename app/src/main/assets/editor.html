@@ -7,46 +7,104 @@
 <style>
   /* Local bundled fonts: no external network requests */
   @font-face {
+    font-family: 'Almarai';
+    src: url('fonts/almarai.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Amiri';
+    src: url('fonts/amiri.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Aref Ruqaa';
+    src: url('fonts/aref_ruqaa.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Cairo';
+    src: url('fonts/cairo.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Kufam';
+    src: url('fonts/kufam.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Lalezar';
+    src: url('fonts/lalezar.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Lemonada';
+    src: url('fonts/lemonada.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Merriweather';
+    src: url('fonts/merriweather.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Montserrat';
+    src: url('fonts/montserrat.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Noto Naskh Arabic';
+    src: url('fonts/noto_naskh_arabic.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Open Sans';
+    src: url('fonts/open_sans.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Playfair Display';
+    src: url('fonts/playfair_display.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Poppins';
+    src: url('fonts/poppins.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Reem Kufi';
+    src: url('fonts/reem_kufi.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Roboto';
+    src: url('fonts/roboto.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'Tajawal';
+    src: url('fonts/tajawal.ttf') format('truetype');
+  }
+  @font-face {
     font-family: 'REMOO Noto Sans Arabic';
     src: url('fonts/NotoSansArabic-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
   }
   @font-face {
     font-family: 'Noto Sans Arabic';
     src: url('fonts/NotoSansArabic-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
   }
   @font-face {
     font-family: 'REMOO Noto Sans';
     src: url('fonts/NotoSans-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
   }
   @font-face {
     font-family: 'Noto Sans';
     src: url('fonts/NotoSans-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
   }
   @font-face {
     font-family: 'REMOO Noto Serif';
     src: url('fonts/NotoSerif-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
   }
   @font-face {
     font-family: 'Noto Serif';
     src: url('fonts/NotoSerif-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
   }
 
   :root {
@@ -310,6 +368,16 @@
     margin: 12px 0;
   }
 
+  .smartart-block, .chart-block {
+    cursor: pointer;
+    transition: outline 0.2s ease;
+  }
+
+  .smartart-block.selected-smartart, .chart-block.selected-chart {
+    outline: 2.5px solid #1A56DB !important;
+    outline-offset: 2px;
+  }
+
   @media print {
     html, body { background: #FFFFFF; }
     .workspace { padding: 0; transform: none; }
@@ -344,8 +412,11 @@
   const pageContainer = document.getElementById('pageContainer');
   let currentFontSizePt = 14;
   let currentLineHeight = '1.5';
+  let currentFontFamily = 'Cairo';
   let lastSelectedCell = null;
   let lastSelectedImage = null;
+  let lastSelectedSmartArt = null;
+  let lastSelectedChart = null;
   let copiedFormat = null;
 
   let suppressTracking = false;
@@ -361,6 +432,16 @@
   function getClosestTag(node, tagName) {
     while (node && node !== editor) {
       if (node.nodeType === 1 && node.tagName.toLowerCase() === tagName.toLowerCase()) {
+        return node;
+      }
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function getClosestSelector(node, selector) {
+    while (node && node !== editor) {
+      if (node.nodeType === 1 && node.matches && node.matches(selector)) {
         return node;
       }
       node = node.parentNode;
@@ -422,7 +503,18 @@
         isStrikethrough: document.queryCommandState('strikeThrough'),
         isSuperscript: document.queryCommandState('superscript'),
         isSubscript: document.queryCommandState('subscript'),
-        fontName: (document.queryCommandValue('fontName') || 'Arial').replace(/['"]/g, ''),
+        fontName: (() => {
+          let f = (document.queryCommandValue('fontName') || '').replace(/['"]/g, '');
+          if (!f || f === 'Arial' || f === 'Times New Roman') {
+            const p = anchorNode && anchorNode.nodeType === 3 ? anchorNode.parentNode : anchorNode;
+            if (p && p.style && p.style.fontFamily) {
+              f = p.style.fontFamily.replace(/['"]/g, '').split(',')[0].trim();
+            } else if (currentFontFamily) {
+              f = currentFontFamily;
+            }
+          }
+          return f || currentFontFamily || 'Cairo';
+        })(),
         fontSize: currentFontSizePt,
         foreColor: rgbToHex(document.queryCommandValue('foreColor')) || '#1E293B',
         backColor: rgbToHex(document.queryCommandValue('backColor')) || '',
@@ -432,6 +524,10 @@
         isNumberList: document.queryCommandState('insertOrderedList'),
         inTable: Boolean(cell),
         inImage: Boolean(lastSelectedImage),
+        inSmartArt: Boolean(lastSelectedSmartArt),
+        selectedSmartArtId: lastSelectedSmartArt ? (lastSelectedSmartArt.getAttribute('data-smartart-id') || '') : '',
+        inChart: Boolean(lastSelectedChart),
+        selectedChartId: lastSelectedChart ? (lastSelectedChart.getAttribute('data-chart-id') || '') : '',
         formatPainterActive: Boolean(copiedFormat),
         wordCount: stats.words,
         charCount: stats.chars,
@@ -468,6 +564,27 @@
       lastSelectedImage = e.target;
       lastSelectedImage.classList.add('selected-img');
     }
+
+    const saEl = getClosestSelector(e.target, '[data-smartart-id]');
+    if (lastSelectedSmartArt && lastSelectedSmartArt !== saEl) {
+      lastSelectedSmartArt.classList.remove('selected-smartart');
+      lastSelectedSmartArt = null;
+    }
+    if (saEl) {
+      lastSelectedSmartArt = saEl;
+      lastSelectedSmartArt.classList.add('selected-smartart');
+    }
+
+    const chartEl = getClosestSelector(e.target, '[data-chart-id]');
+    if (lastSelectedChart && lastSelectedChart !== chartEl) {
+      lastSelectedChart.classList.remove('selected-chart');
+      lastSelectedChart = null;
+    }
+    if (chartEl) {
+      lastSelectedChart = chartEl;
+      lastSelectedChart.classList.add('selected-chart');
+    }
+
     notifySelectionState();
   });
   editor.addEventListener('keyup', notifySelectionState);
@@ -653,20 +770,35 @@
     },
 
     setFontFamily: (font) => {
+      currentFontFamily = font;
       focusEditor();
-      const sel = window.getSelection();
+      let sel = window.getSelection();
+      if ((!sel || sel.rangeCount === 0 || sel.isCollapsed) && lastValidSelectionRange) {
+        sel.removeAllRanges();
+        sel.addRange(lastValidSelectionRange);
+      }
       if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
         document.execCommand('fontName', false, font);
+        const fontElements = editor.querySelectorAll('font');
+        fontElements.forEach(el => {
+          const f = el.getAttribute('face');
+          if (f === font || f === `'${font}'` || !f) {
+            el.style.fontFamily = `'${font}', sans-serif`;
+          }
+        });
       } else {
-        const span = document.createElement('span');
-        span.style.fontFamily = font;
-        span.innerHTML = '&#8203;';
-        const range = sel.getRangeAt(0);
-        range.insertNode(span);
-        range.setStart(span.firstChild, 1);
-        range.setEnd(span.firstChild, 1);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        editor.style.fontFamily = `'${font}', sans-serif`;
+        if (sel && sel.rangeCount > 0) {
+          const span = document.createElement('span');
+          span.style.fontFamily = `'${font}', sans-serif`;
+          span.innerHTML = '&#8203;';
+          const range = sel.getRangeAt(0);
+          range.insertNode(span);
+          range.setStart(span.firstChild, 1);
+          range.setEnd(span.firstChild, 1);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
       }
       notifySelectionState();
       notifyContentChanged();
@@ -812,6 +944,51 @@
       const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
       if (cell) {
         cell.style.backgroundColor = hex;
+        notifyContentChanged();
+      }
+    },
+
+    splitTableCell: () => {
+      const sel = window.getSelection();
+      const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
+      if (!cell) return;
+      if (cell.colSpan > 1) {
+        cell.colSpan = cell.colSpan - 1;
+        const newCell = document.createElement('td');
+        newCell.innerHTML = '<br>';
+        newCell.style.border = cell.style.border || '1px solid #CBD5E1';
+        newCell.style.padding = '6px';
+        cell.parentNode.insertBefore(newCell, cell.nextSibling);
+      } else {
+        const newCell = document.createElement('td');
+        newCell.innerHTML = '<br>';
+        newCell.style.border = cell.style.border || '1px solid #CBD5E1';
+        newCell.style.padding = '6px';
+        cell.parentNode.insertBefore(newCell, cell.nextSibling);
+      }
+      notifySelectionState();
+      notifyContentChanged();
+    },
+
+    setTableCellAlignment: (align) => {
+      const sel = window.getSelection();
+      const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
+      if (cell) {
+        cell.style.textAlign = align;
+        notifyContentChanged();
+      }
+    },
+
+    setTableBorderColor: (hex) => {
+      const sel = window.getSelection();
+      const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
+      if (!cell) return;
+      const table = getClosestTag(cell, 'table');
+      if (table) {
+        table.style.borderColor = hex;
+        Array.from(table.querySelectorAll('td, th')).forEach(c => {
+          c.style.borderColor = hex;
+        });
         notifyContentChanged();
       }
     },
@@ -1046,6 +1223,14 @@
     updateTableOfContents: () => updateTableOfContents(),
     removeTableOfContents: () => removeTableOfContents(),
     goToHeading: (id) => goToHeading(id),
+
+    // --- SmartArt & Charts ---
+    insertSmartArt: (smartArtJson) => insertSmartArt(smartArtJson),
+    updateSmartArt: (smartArtJson) => updateSmartArt(smartArtJson),
+    deleteSmartArt: (smartArtId) => deleteSmartArt(smartArtId),
+    insertChart: (chartJson) => insertChart(chartJson),
+    updateChart: (chartJson) => updateChart(chartJson),
+    deleteChart: (chartId) => deleteChart(chartId),
 
     setReadMode: (enabled) => {
       editor.setAttribute('contenteditable', enabled ? 'false' : 'true');
@@ -1587,6 +1772,276 @@
   function goToHeading(id) {
     const h = editor.querySelector(`#${id}`);
     if (h) h.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // --- SmartArt & Chart Helper Implementations ---
+  function renderSmartArtHtml(smartArtObj) {
+    const data = typeof smartArtObj === 'string' ? JSON.parse(smartArtObj) : smartArtObj;
+    const layout = (data.layoutType || 'hierarchy').toLowerCase();
+    const primaryColor = data.primaryColorHex || '#1A56DB';
+    const accentColor = data.accentColorHex || '#3B82F6';
+    const bg = data.backgroundColorHex || '#F1F5F9';
+
+    let contentHtml = '';
+    const nodes = data.nodes || [];
+
+    if (layout === 'hierarchy') {
+      contentHtml = `<div class="sa-hierarchy-tree" style="display:flex; flex-direction:column; gap:8px;">`;
+      nodes.forEach(node => {
+        const indent = (node.level || 0) * 24;
+        contentHtml += `
+          <div class="sa-node sa-hierarchy-node" style="margin-inline-start:${indent}px; border-inline-start: 4px solid ${primaryColor}; background:${bg}; padding:8px 12px; border-radius:4px;">
+            <span class="sa-node-text" style="color:#0F172A; font-weight:bold;">${node.text || 'عقدة'}</span>
+          </div>`;
+      });
+      contentHtml += `</div>`;
+    } else if (layout === 'process') {
+      contentHtml = `<div class="sa-process-flow" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">`;
+      nodes.forEach((node, idx) => {
+        contentHtml += `
+          <div class="sa-node sa-process-card" style="background:${primaryColor}; color:#FFFFFF; padding:8px 14px; border-radius:6px; font-weight:bold;">
+            ${node.text || ('خطوة ' + (idx+1))}
+          </div>`;
+        if (idx < nodes.length - 1) {
+          contentHtml += `<span class="sa-arrow" style="color:${primaryColor}; font-size:16pt; font-weight:bold;">➔</span>`;
+        }
+      });
+      contentHtml += `</div>`;
+    } else if (layout === 'cycle') {
+      contentHtml = `<div class="sa-cycle-flow" style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center; align-items:center;">`;
+      nodes.forEach((node, idx) => {
+        contentHtml += `
+          <div class="sa-node sa-cycle-card" style="border:2px solid ${primaryColor}; background:${bg}; color:#0F172A; padding:8px 12px; border-radius:20px; font-weight:bold;">
+            ${node.text || ('عنصر ' + (idx+1))}
+          </div>`;
+        if (idx < nodes.length - 1) {
+          contentHtml += `<span class="sa-arrow" style="color:${accentColor}; font-weight:bold;">↻</span>`;
+        }
+      });
+      contentHtml += `</div>`;
+    } else {
+      contentHtml = `<div class="sa-list-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap:10px;">`;
+      nodes.forEach(node => {
+        contentHtml += `
+          <div class="sa-node sa-grid-card" style="background:${bg}; border-top:3px solid ${primaryColor}; padding:10px; border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+            <div style="font-weight:bold; color:#0F172A;">${node.text || ''}</div>
+          </div>`;
+      });
+      contentHtml += `</div>`;
+    }
+
+    const titleHtml = data.title ? `<div style="font-weight:bold; font-size:12pt; margin-bottom:8px; color:${primaryColor};">${data.title}</div>` : '';
+    const jsonStr = encodeURIComponent(JSON.stringify(data));
+
+    return `<div class="smartart-block" data-smartart-id="${data.id}" data-smartart-json="${jsonStr}" contenteditable="false" style="border:1.5px solid #CBD5E1; border-radius:8px; padding:12px; margin:12px 0; background:#FFFFFF; user-select:none;">
+      ${titleHtml}
+      ${contentHtml}
+    </div>`;
+  }
+
+  function renderChartHtml(chartObj) {
+    const data = typeof chartObj === 'string' ? JSON.parse(chartObj) : chartObj;
+    const type = (data.chartType || 'column').toLowerCase();
+    const title = data.title || 'مخطط بياني';
+    const categories = data.categories || [];
+    const seriesList = data.series || [];
+
+    const defaultColors = ['#1A56DB', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6'];
+
+    let svgBody = '';
+    const width = 450;
+    const height = 220;
+    const padding = 35;
+
+    if (type === 'column' || type === 'bar') {
+      const barWidth = 24;
+      const catCount = Math.max(1, categories.length);
+      const catWidth = (width - padding * 2) / catCount;
+
+      let maxVal = 10;
+      seriesList.forEach(s => {
+        (s.values || []).forEach(v => { if (v > maxVal) maxVal = v; });
+      });
+
+      svgBody += `<line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#CBD5E1" stroke-width="1.5"/>`;
+      svgBody += `<line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#CBD5E1" stroke-width="1.5"/>`;
+
+      categories.forEach((cat, cIdx) => {
+        const xCenter = padding + cIdx * catWidth + catWidth / 2;
+        svgBody += `<text x="${xCenter}" y="${height - 10}" font-size="10" text-anchor="middle" fill="#64748B">${cat}</text>`;
+
+        const groupWidth = seriesList.length * (barWidth + 2);
+        const startX = xCenter - groupWidth / 2;
+
+        seriesList.forEach((s, sIdx) => {
+          const val = (s.values && s.values[cIdx] !== undefined) ? s.values[cIdx] : 0;
+          const barH = (val / maxVal) * (height - padding * 2);
+          const bx = startX + sIdx * (barWidth + 2);
+          const by = height - padding - barH;
+          const color = s.colorHex || defaultColors[sIdx % defaultColors.length];
+
+          svgBody += `<rect x="${bx}" y="${by}" width="${barWidth}" height="${barH}" fill="${color}" rx="3"/>`;
+        });
+      });
+    } else if (type === 'line' || type === 'area' || type === 'scatter') {
+      let maxVal = 10;
+      seriesList.forEach(s => {
+        (s.values || []).forEach(v => { if (v > maxVal) maxVal = v; });
+      });
+
+      svgBody += `<line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#CBD5E1" stroke-width="1.5"/>`;
+      svgBody += `<line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#CBD5E1" stroke-width="1.5"/>`;
+
+      const catCount = Math.max(1, categories.length);
+      const stepX = (width - padding * 2) / Math.max(1, catCount - 1);
+
+      categories.forEach((cat, cIdx) => {
+        const cx = padding + cIdx * stepX;
+        svgBody += `<text x="${cx}" y="${height - 10}" font-size="10" text-anchor="middle" fill="#64748B">${cat}</text>`;
+      });
+
+      seriesList.forEach((s, sIdx) => {
+        const color = s.colorHex || defaultColors[sIdx % defaultColors.length];
+        const points = (s.values || []).map((val, cIdx) => {
+          const px = padding + cIdx * stepX;
+          const py = height - padding - (val / maxVal) * (height - padding * 2);
+          return `${px},${py}`;
+        }).join(' ');
+
+        if (type === 'area' && points.length > 0) {
+          const firstX = padding;
+          const lastX = padding + (s.values.length - 1) * stepX;
+          const areaPoints = `${firstX},${height - padding} ${points} ${lastX},${height - padding}`;
+          svgBody += `<polygon points="${areaPoints}" fill="${color}" fill-opacity="0.2"/>`;
+        }
+        svgBody += `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="3"/>`;
+        (s.values || []).forEach((val, cIdx) => {
+          const px = padding + cIdx * stepX;
+          const py = height - padding - (val / maxVal) * (height - padding * 2);
+          svgBody += `<circle cx="${px}" cy="${py}" r="4" fill="${color}"/>`;
+        });
+      });
+    } else if (type === 'pie' || type === 'doughnut') {
+      const cx = width / 2;
+      const cy = height / 2;
+      const radius = 70;
+      const innerRadius = type === 'doughnut' ? 35 : 0;
+
+      const firstSeries = seriesList[0] || { values: [10, 20, 30] };
+      const vals = firstSeries.values || [];
+      const total = vals.reduce((a, b) => a + b, 0) || 1;
+
+      let currentAngle = 0;
+      vals.forEach((v, idx) => {
+        const sliceAngle = (v / total) * 2 * Math.PI;
+        const x1 = cx + radius * Math.cos(currentAngle);
+        const y1 = cy + radius * Math.sin(currentAngle);
+        const x2 = cx + radius * Math.cos(currentAngle + sliceAngle);
+        const y2 = cy + radius * Math.sin(currentAngle + sliceAngle);
+
+        const largeArc = sliceAngle > Math.PI ? 1 : 0;
+        const color = defaultColors[idx % defaultColors.length];
+
+        if (innerRadius > 0) {
+          const ix1 = cx + innerRadius * Math.cos(currentAngle);
+          const iy1 = cy + innerRadius * Math.sin(currentAngle);
+          const ix2 = cx + innerRadius * Math.cos(currentAngle + sliceAngle);
+          const iy2 = cy + innerRadius * Math.sin(currentAngle + sliceAngle);
+          svgBody += `<path d="M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} L ${ix2} ${iy2} A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${ix1} ${iy1} Z" fill="${color}"/>`;
+        } else {
+          svgBody += `<path d="M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z" fill="${color}"/>`;
+        }
+        currentAngle += sliceAngle;
+      });
+    } else {
+      svgBody += `<rect x="10" y="10" width="${width-20}" height="${height-20}" fill="#F8FAFC" rx="8" stroke="#E2E8F0"/>`;
+      svgBody += `<text x="${width/2}" y="${height/2}" font-size="14" text-anchor="middle" fill="#475569">مخطط ${type} — Chart Data</text>`;
+    }
+
+    let legendHtml = '<div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:8px; justify-content:center; font-size:10pt;">';
+    seriesList.forEach((s, idx) => {
+      const color = s.colorHex || defaultColors[idx % defaultColors.length];
+      legendHtml += `<div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:12px; height:12px; background:${color}; border-radius:2px;"></span><span>${s.name || ('سلسلة ' + (idx+1))}</span></div>`;
+    });
+    legendHtml += '</div>';
+
+    const jsonStr = encodeURIComponent(JSON.stringify(data));
+
+    return `<div class="chart-block" data-chart-id="${data.id}" data-chart-json="${jsonStr}" contenteditable="false" style="border:1.5px solid #CBD5E1; border-radius:8px; padding:12px; margin:12px 0; background:#FFFFFF; user-select:none; text-align:center;">
+      <div style="font-weight:bold; font-size:12pt; margin-bottom:8px; color:#0F172A;">${title}</div>
+      <svg width="100%" viewBox="0 0 ${width} ${height}" style="max-height:220px;">
+        ${svgBody}
+      </svg>
+      ${legendHtml}
+    </div>`;
+  }
+
+  function insertSmartArt(smartArtJson) {
+    focusEditor();
+    let data = typeof smartArtJson === 'string' ? JSON.parse(smartArtJson) : smartArtJson;
+    const html = renderSmartArtHtml(data) + '<p><br></p>';
+    document.execCommand('insertHTML', false, html);
+    notifySelectionState();
+    notifyContentChanged();
+  }
+
+  function updateSmartArt(smartArtJson) {
+    let data = typeof smartArtJson === 'string' ? JSON.parse(smartArtJson) : smartArtJson;
+    if (!data || !data.id) return;
+    const existing = editor.querySelector(`[data-smartart-id="${data.id}"]`);
+    if (existing) {
+      const newHtml = renderSmartArtHtml(data);
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = newHtml;
+      const newEl = tempDiv.firstElementChild;
+      existing.parentNode.replaceChild(newEl, existing);
+      notifySelectionState();
+      notifyContentChanged();
+    }
+  }
+
+  function deleteSmartArt(smartArtId) {
+    const target = editor.querySelector(`[data-smartart-id="${smartArtId}"]`);
+    if (target) {
+      target.parentNode.removeChild(target);
+      lastSelectedSmartArt = null;
+      notifySelectionState();
+      notifyContentChanged();
+    }
+  }
+
+  function insertChart(chartJson) {
+    focusEditor();
+    let data = typeof chartJson === 'string' ? JSON.parse(chartJson) : chartJson;
+    const html = renderChartHtml(data) + '<p><br></p>';
+    document.execCommand('insertHTML', false, html);
+    notifySelectionState();
+    notifyContentChanged();
+  }
+
+  function updateChart(chartJson) {
+    let data = typeof chartJson === 'string' ? JSON.parse(chartJson) : chartJson;
+    if (!data || !data.id) return;
+    const existing = editor.querySelector(`[data-chart-id="${data.id}"]`);
+    if (existing) {
+      const newHtml = renderChartHtml(data);
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = newHtml;
+      const newEl = tempDiv.firstElementChild;
+      existing.parentNode.replaceChild(newEl, existing);
+      notifySelectionState();
+      notifyContentChanged();
+    }
+  }
+
+  function deleteChart(chartId) {
+    const target = editor.querySelector(`[data-chart-id="${chartId}"]`);
+    if (target) {
+      target.parentNode.removeChild(target);
+      lastSelectedChart = null;
+      notifySelectionState();
+      notifyContentChanged();
+    }
   }
 
   setTimeout(notifySelectionState, 200);

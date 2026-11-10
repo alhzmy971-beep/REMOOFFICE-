@@ -192,6 +192,10 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
     var conversionStatusText by remember { mutableStateOf("") }
     var showImportReportDialog by remember { mutableStateOf(false) }
     var activeImportReport by remember { mutableStateOf<DocumentImportReport?>(null) }
+    var showSmartArtDialog by remember { mutableStateOf(false) }
+    var editingSmartArtData by remember { mutableStateOf<com.example.model.SmartArtData?>(null) }
+    var showChartDialog by remember { mutableStateOf(false) }
+    var editingChartData by remember { mutableStateOf<com.example.model.ChartData?>(null) }
 
     LaunchedEffect(currentScreen) {
         if (currentScreen == AppScreen.HOME) {
@@ -258,14 +262,18 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     val importedPayload = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use { input ->
                             val extension = fileName.substringAfterLast(".", "")
-                            when {
-                                isPdf -> com.example.model.DocumentPayload(
-                                    bodyHtml = PdfImporter.pdfToHtml(context, input)
+                            val bytes = input.readBytes()
+                            val isPdfByHeader = bytes.size >= 4 &&
+                                bytes[0] == '%'.code.toByte() &&
+                                bytes[1] == 'P'.code.toByte() &&
+                                bytes[2] == 'D'.code.toByte() &&
+                                bytes[3] == 'F'.code.toByte()
+                            if (isPdf || isPdfByHeader) {
+                                com.example.model.DocumentPayload(
+                                    bodyHtml = PdfImporter.pdfToHtml(context, java.io.ByteArrayInputStream(bytes))
                                 )
-                                isTxt -> com.example.model.DocumentPayload(
-                                    bodyHtml = DocxConverter.txtToHtml(input)
-                                )
-                                else -> DocxConverter.loadDocument(input, extension)
+                            } else {
+                                DocxConverter.detectAndLoadDocument(bytes, extension, fileName)
                             }
                         } ?: com.example.model.DocumentPayload()
                     }
@@ -731,6 +739,9 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             onDeleteTableRow = { EditorCommands.deleteTableRow(webViewRef) },
                             onDeleteTableCol = { EditorCommands.deleteTableCol(webViewRef) },
                             onMergeTableCells = { EditorCommands.mergeTableCells(webViewRef) },
+                            onSplitTableCell = { EditorCommands.splitTableCell(webViewRef) },
+                            onSetTableCellAlignment = { EditorCommands.setTableCellAlignment(webViewRef, it) },
+                            onSetTableBorderColor = { EditorCommands.setTableBorderColor(webViewRef, it) },
                             onSetCellBackground = { EditorCommands.setCellBackground(webViewRef, it) },
                             onPickImageGallery = {
                                 pickImageLauncher.launch(
@@ -836,7 +847,23 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             onOpenTrackedChangesPanel = { showTrackedChangesPanel = true },
                             onOpenStylesDialog = { showStylesDialog = true },
                             onOpenDocPropertiesDialog = { showDocPropertiesDialog = true },
-                            onOpenCommentsPanel = { showCommentsPanel = true }
+                            onOpenCommentsPanel = { showCommentsPanel = true },
+                            onOpenSmartArtDialog = {
+                                if (selectionState.inSmartArt && selectionState.selectedSmartArtId.isNotBlank()) {
+                                    editingSmartArtData = documentPayload.smartArts.find { it.id == selectionState.selectedSmartArtId }
+                                } else {
+                                    editingSmartArtData = null
+                                }
+                                showSmartArtDialog = true
+                            },
+                            onOpenChartDialog = {
+                                if (selectionState.inChart && selectionState.selectedChartId.isNotBlank()) {
+                                    editingChartData = documentPayload.charts.find { it.id == selectionState.selectedChartId }
+                                } else {
+                                    editingChartData = null
+                                }
+                                showChartDialog = true
+                            }
                         )
 
                         BottomTabBar(
@@ -1511,36 +1538,109 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("تم استيراد المستند بنجاح مع المحافظة على كافة العناصر:")
+                    Text("تم فحص واستيراد محتويات المستند بنجاح مع الحفاظ على بنيتها وتنسيقاتها:")
                     Text("• الفقرات: ${report.paragraphCount}")
                     Text("• الجداول: ${report.tableCount}")
                     Text("• الصور المدمجة: ${report.imageCount}")
                     if (report.smartArtCount > 0) {
-                        Text("• عناصر SmartArt: ${report.smartArtCount} (محفوظة بصرياً)")
+                        Text("• عناصر SmartArt: ${report.smartArtCount} (محولة إلى عناصر تفاعلية قابلة للتحرير بالكامل)")
                     }
                     if (report.chartCount > 0) {
-                        Text("• المخططات البيانية: ${report.chartCount} (محفوظة بصرياً)")
+                        Text("• المخططات البيانية: ${report.chartCount} (محولة إلى مخططات SVG تفاعلية قابلة للتحرير بالكامل)")
+                    }
+                    if (report.fieldCount > 0) {
+                        Text("• الحقول والعلامات المرجعية: ${report.fieldCount}")
+                    }
+                    if (report.commentCount > 0) {
+                        Text("• التعليقات: ${report.commentCount}")
                     }
                     if (report.noteCount > 0) {
-                        Text("• الحواشي والتعليقات: ${report.noteCount}")
+                        Text("• الحواشي والتذييلات: ${report.noteCount}")
+                    }
+                    if (report.svgConvertedCount > 0) {
+                        Text("• عناصر محولة إلى SVG تفاعلي: ${report.svgConvertedCount}")
+                    }
+                    if (report.drawingMlConvertedCount > 0) {
+                        Text("• عناصر DrawingML المحفوظة: ${report.drawingMlConvertedCount}")
+                    }
+                    if (report.imageFallbackCount > 0) {
+                        Text("• الصور والنسخ الاحتياطية المحفوظة: ${report.imageFallbackCount}")
                     }
                     if (report.unsupportedReasons.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "ملاحظات التوافق:",
+                            "ملاحظات التوافق والمعالجة:",
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp
                         )
                         report.unsupportedReasons.forEach { reason ->
-                            Text("⚠️ $reason", fontSize = 11.sp, color = Color(0xFFB45309))
+                            Text("ℹ️ $reason", fontSize = 11.sp, color = Color(0xFFB45309))
                         }
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showImportReportDialog = false }) {
-                    Text("تم")
+                    Text("حسناً")
                 }
+            }
+        )
+    }
+
+    if (showSmartArtDialog) {
+        com.example.ui.components.SmartArtDialog(
+            initialSmartArt = editingSmartArtData,
+            onDismiss = { showSmartArtDialog = false },
+            onConfirm = { smartArtData ->
+                val json = com.example.bridge.SmartArtChartUtils.smartArtToJson(smartArtData)
+                val updatedSmartArts = if (editingSmartArtData != null) {
+                    EditorCommands.updateSmartArt(webViewRef, json)
+                    documentPayload.smartArts.map { if (it.id == smartArtData.id) smartArtData else it }
+                } else {
+                    EditorCommands.insertSmartArt(webViewRef, json)
+                    documentPayload.smartArts + smartArtData
+                }
+                val updatedPayload = documentPayload.copy(smartArts = updatedSmartArts)
+                viewModel.setDocumentPayload(updatedPayload)
+                persistPayload(updatedPayload)
+                viewModel.showMessage(if (editingSmartArtData != null) "تم تحديث SmartArt" else "تم إدراج SmartArt بنجاح")
+            },
+            onDelete = { smartArtId ->
+                EditorCommands.deleteSmartArt(webViewRef, smartArtId)
+                val updatedSmartArts = documentPayload.smartArts.filter { it.id != smartArtId }
+                val updatedPayload = documentPayload.copy(smartArts = updatedSmartArts)
+                viewModel.setDocumentPayload(updatedPayload)
+                persistPayload(updatedPayload)
+                viewModel.showMessage("تم حذف SmartArt")
+            }
+        )
+    }
+
+    if (showChartDialog) {
+        com.example.ui.components.ChartDialog(
+            initialChart = editingChartData,
+            onDismiss = { showChartDialog = false },
+            onConfirm = { chartData ->
+                val json = com.example.bridge.SmartArtChartUtils.chartToJson(chartData)
+                val updatedCharts = if (editingChartData != null) {
+                    EditorCommands.updateChart(webViewRef, json)
+                    documentPayload.charts.map { if (it.id == chartData.id) chartData else it }
+                } else {
+                    EditorCommands.insertChart(webViewRef, json)
+                    documentPayload.charts + chartData
+                }
+                val updatedPayload = documentPayload.copy(charts = updatedCharts)
+                viewModel.setDocumentPayload(updatedPayload)
+                persistPayload(updatedPayload)
+                viewModel.showMessage(if (editingChartData != null) "تم تحديث المخطط البياني" else "تم إدراج المخطط البياني بنجاح")
+            },
+            onDelete = { chartId ->
+                EditorCommands.deleteChart(webViewRef, chartId)
+                val updatedCharts = documentPayload.charts.filter { it.id != chartId }
+                val updatedPayload = documentPayload.copy(charts = updatedCharts)
+                viewModel.setDocumentPayload(updatedPayload)
+                persistPayload(updatedPayload)
+                viewModel.showMessage("تم حذف المخطط البياني")
             }
         )
     }

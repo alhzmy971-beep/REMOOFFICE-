@@ -3,6 +3,9 @@ name: Android Release
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
+      - fix-remooffice-suite
     tags:
       - "v*"
 
