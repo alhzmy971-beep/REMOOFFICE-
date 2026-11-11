@@ -816,6 +816,30 @@ object DocxConverter {
         val unsupportedReasons = mutableListOf<String>()
         var unsupportedCount = 0
 
+        // Honest fallback reporting: a SmartArt whose layout/style/colors parts could
+        // not be located is imported as a re-renderable approximation, and a scatter
+        // chart whose explicit X values could not be read falls back to point indexes.
+        // Record both so the import report never implies a lossless conversion.
+        extractedSmartArts.forEach { sa ->
+            if (sa.layoutXml.isNullOrBlank()) {
+                unsupportedReasons.add(
+                    "SmartArt '${sa.title.ifBlank { sa.id }}': لم يتم العثور على جزء التخطيط (layout) الأصلي؛ تم استيراد تخطيط تقريبي قابل للتعديل"
+                )
+            }
+            if (sa.styleXml.isNullOrBlank() || sa.colorXml.isNullOrBlank()) {
+                unsupportedReasons.add(
+                    "SmartArt '${sa.title.ifBlank { sa.id }}': أجزاء النمط/الألوان الأصلية ناقصة؛ قد تختلف الألوان عن الملف الأصلي"
+                )
+            }
+        }
+        extractedCharts.forEach { ch ->
+            if (ch.type == "scatter" && ch.series.any { it.xValues.isEmpty() }) {
+                unsupportedReasons.add(
+                    "المخطط البياني '${ch.title.ifBlank { ch.id }}': قيم X الصريحة غير متوفرة لبعض السلاسل؛ تم استخدام ترتيب النقاط كبديل"
+                )
+            }
+        }
+
         val headerHtml = document.headerList.firstOrNull()?.text?.trim()?.let {
             if (it.isNotEmpty()) "<p>${escapeHtml(it)}</p>" else ""
         } ?: ""

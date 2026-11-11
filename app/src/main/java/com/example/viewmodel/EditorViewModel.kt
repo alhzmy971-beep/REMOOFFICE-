@@ -49,11 +49,19 @@ class EditorViewModel : ViewModel() {
     }
 
     fun updateHtmlParts(bodyHtml: String, headerHtml: String, footerHtml: String) {
+        // Keep DocumentPayload.smartArts/charts in sync with the DOM. The HTML editor
+        // stores the authoritative model in data-smartart-json / data-chart-json
+        // attributes, so inline node edits, additions and deletions must be reflected
+        // in the payload (and therefore local storage) as well as in the rendered HTML.
+        val syncedSmartArts = com.example.bridge.SmartArtChartUtils.extractSmartArtsFromHtml(bodyHtml)
+        val syncedCharts = com.example.bridge.SmartArtChartUtils.extractChartsFromHtml(bodyHtml)
         _documentPayload.update {
             it.copy(
                 bodyHtml = bodyHtml,
                 headerHtml = headerHtml,
                 footerHtml = footerHtml,
+                smartArts = if (bodyHtml.contains("data-smartart-json")) syncedSmartArts else it.smartArts,
+                charts = if (bodyHtml.contains("data-chart-json")) syncedCharts else it.charts,
                 properties = it.properties.copy(modificationDate = System.currentTimeMillis())
             )
         }

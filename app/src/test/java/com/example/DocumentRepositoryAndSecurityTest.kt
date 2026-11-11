@@ -35,6 +35,27 @@ class DocumentRepositoryAndSecurityTest {
     }
 
     @Test
+    fun htmlSanitizer_removesSvgScriptsForeignObjectAndEventHandlers() {
+        val dirty = """
+            <p>ok</p>
+            <svg onload="alert(1)"><script>alert(2)</script>
+              <foreignObject><body xmlns="http://www.w3.org/1999/xhtml"><img src="x" onerror="alert(3)"/></body></foreignObject>
+              <a xlink:href="javascript:alert(4)"><rect width="10" height="10" onclick="alert(5)"/></a>
+            </svg>
+            <a href="file:///etc/passwd">file</a>
+        """.trimIndent()
+        val clean = HtmlSanitizer.sanitizeHtml(dirty)
+        assertFalse(clean.contains("<script", ignoreCase = true))
+        assertFalse(clean.contains("foreignObject", ignoreCase = true))
+        assertFalse(clean.contains("onload", ignoreCase = true))
+        assertFalse(clean.contains("onerror", ignoreCase = true))
+        assertFalse(clean.contains("onclick", ignoreCase = true))
+        assertFalse(clean.contains("javascript:", ignoreCase = true))
+        assertFalse(clean.contains("file://", ignoreCase = true))
+        assertTrue(clean.contains("ok"))
+    }
+
+    @Test
     fun urlValidator_allowsOnlyHttpAndHttps() {
         assertTrue(HtmlSanitizer.isValidSafeUrl("https://example.com"))
         assertTrue(HtmlSanitizer.isValidSafeUrl("http://example.com/path"))

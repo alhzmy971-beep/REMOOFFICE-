@@ -191,13 +191,29 @@ data class SmartArtData(
     val layoutPartName: String? = null,
     val stylePartName: String? = null,
     val colorPartName: String? = null,
+    /** Raw original diagram layout part XML, preserved verbatim on export when present. */
+    val layoutXml: String? = null,
+    /** Raw original diagram quick-style part XML, preserved verbatim on export when present. */
+    val styleXml: String? = null,
+    /** Raw original diagram color part XML, preserved verbatim on export when present. */
+    val colorXml: String? = null,
+    /** True when the user edited the data model, so originalXml must not be reapplied. */
+    val userModified: Boolean = false,
     val connections: List<SmartArtConnection> = emptyList()
 )
 
 data class ChartSeries(
     val name: String,
     val values: List<Double> = emptyList(),
-    val colorHex: String? = null
+    val colorHex: String? = null,
+    /**
+     * Explicit numeric X coordinates for scatter charts. Index i pairs with
+     * [values] index i. Never inferred from categories or point index. Empty for
+     * non-scatter charts (backward compatible with payloads created before this field).
+     */
+    val xValues: List<Double> = emptyList(),
+    /** When true, a scatter series is drawn as a connected line as well as markers. */
+    val connectPoints: Boolean = false
 )
 
 data class ChartData(

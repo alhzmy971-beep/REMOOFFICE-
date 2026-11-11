@@ -53,6 +53,10 @@ object SmartArtChartUtils {
             data.layoutPartName?.let { put("layoutPartName", it) }
             data.stylePartName?.let { put("stylePartName", it) }
             data.colorPartName?.let { put("colorPartName", it) }
+            data.layoutXml?.let { put("layoutXml", it) }
+            data.styleXml?.let { put("styleXml", it) }
+            data.colorXml?.let { put("colorXml", it) }
+            put("userModified", data.userModified)
 
             val nodesArr = JSONArray()
             data.nodes.forEach { node ->
@@ -146,6 +150,10 @@ object SmartArtChartUtils {
             layoutPartName = obj.optString("layoutPartName").ifBlank { null },
             stylePartName = obj.optString("stylePartName").ifBlank { null },
             colorPartName = obj.optString("colorPartName").ifBlank { null },
+            layoutXml = obj.optString("layoutXml").ifBlank { null },
+            styleXml = obj.optString("styleXml").ifBlank { null },
+            colorXml = obj.optString("colorXml").ifBlank { null },
+            userModified = obj.optBoolean("userModified", false),
             connections = connList
         )
     }
@@ -184,6 +192,10 @@ object SmartArtChartUtils {
                     val valsArr = JSONArray()
                     s.values.forEach { valsArr.put(it) }
                     put("values", valsArr)
+                    val xArr = JSONArray()
+                    s.xValues.forEach { xArr.put(it) }
+                    put("xValues", xArr)
+                    put("connectPoints", s.connectPoints)
                 }
                 seriesArr.put(sObj)
             }
@@ -209,11 +221,18 @@ object SmartArtChartUtils {
             for (j in 0 until valsArr.length()) {
                 valsList.add(valsArr.getDouble(j))
             }
+            val xArr = sObj.optJSONArray("xValues") ?: JSONArray()
+            val xList = mutableListOf<Double>()
+            for (j in 0 until xArr.length()) {
+                xList.add(xArr.getDouble(j))
+            }
             seriesList.add(
                 ChartSeries(
                     name = sObj.optString("name", "سلسلة ${i + 1}"),
                     values = valsList,
-                    colorHex = sObj.optString("colorHex").ifBlank { null }
+                    colorHex = sObj.optString("colorHex").ifBlank { null },
+                    xValues = xList,
+                    connectPoints = sObj.optBoolean("connectPoints", false)
                 )
             )
         }
@@ -296,6 +315,30 @@ object SmartArtChartUtils {
 
     fun defaultChart(type: String = "column"): ChartData {
         val id = "chart_${System.currentTimeMillis()}"
+        if (type.equals("scatter", ignoreCase = true)) {
+            return ChartData(
+                id = id,
+                type = "scatter",
+                title = "مخطط انتشار إحصائي",
+                categories = emptyList(),
+                series = listOf(
+                    ChartSeries(
+                        name = "السلسلة الأولى",
+                        values = listOf(12.0, 19.0, 8.0, 25.0, 17.0, 31.0),
+                        colorHex = "#1A56DB",
+                        xValues = listOf(1.0, 2.5, 4.0, 5.5, 7.0, 8.5)
+                    ),
+                    ChartSeries(
+                        name = "السلسلة الثانية",
+                        values = listOf(22.0, 14.0, 30.0, 11.0, 27.0, 9.0),
+                        colorHex = "#059669",
+                        xValues = listOf(1.5, 3.0, 4.5, 6.0, 7.5, 9.0)
+                    )
+                ),
+                xAxisLabel = "المحور السيني",
+                yAxisLabel = "المحور الصادي"
+            )
+        }
         return ChartData(
             id = id,
             type = type,
@@ -306,6 +349,10 @@ object SmartArtChartUtils {
                 ChartSeries("الأرباح", listOf(50.0, 90.0, 75.0, 120.0), "#059669")
             )
         )
+    }
+
+    private fun formatTick(v: Double): String {
+        return if (v == v.toLong().toDouble()) v.toLong().toString() else String.format("%.2f", v)
     }
 
     fun renderChartSvg(data: ChartData): String {
@@ -416,8 +463,73 @@ object SmartArtChartUtils {
                     }
                 }
             }
+            "scatter" -> {
+                // Real numeric X/Y scatter. X must come from explicit xValues; never inferred
+                // from category index or labels.
+                val allX = mutableListOf<Double>()
+                val allY = mutableListOf<Double>()
+                data.series.forEach { s ->
+                    s.xValues.forEach { allX.add(it) }
+                    s.values.forEach { allY.add(it) }
+                }
+                val hasAnyX = allX.isNotEmpty()
+                if (!hasAnyX) {
+                    sb.append("<text x=\"${width / 2}\" y=\"${height / 2}\" font-size=\"12\" fill=\"#B91C1C\" text-anchor=\"middle\">قيم X غير متوفرة لهذا المخطط</text>")
+                } else {
+                    val minX = allX.minOrNull() ?: 0.0
+                    val maxX = allX.maxOrNull() ?: 1.0
+                    val minY = (allY.minOrNull() ?: 0.0).coerceAtMost(0.0)
+                    val maxY = allY.maxOrNull() ?: 1.0
+                    val spanX = (maxX - minX).let { if (it <= 0.0) 1.0 else it }
+                    val spanY = (maxY - minY).let { if (it <= 0.0) 1.0 else it }
+
+                    fun mapX(x: Double): Double = pad + ((x - minX) / spanX) * chartW
+                    fun mapY(y: Double): Double = height - pad - ((y - minY) / spanY) * chartH
+
+                    if (data.showGrid) {
+                        for (step in 0..4) {
+                            val gy = height - pad - (step / 4.0) * chartH
+                            sb.append("<line x1=\"$pad\" y1=\"$gy\" x2=\"${width - pad}\" y2=\"$gy\" stroke=\"#F1F5F9\" stroke-dasharray=\"3,3\" stroke-width=\"1\" />")
+                            val gx = pad + (step / 4.0) * chartW
+                            sb.append("<line x1=\"$gx\" y1=\"$pad\" x2=\"$gx\" y2=\"${height - pad}\" stroke=\"#F1F5F9\" stroke-dasharray=\"3,3\" stroke-width=\"1\" />")
+                        }
+                    }
+                    // Axes
+                    sb.append("<line x1=\"$pad\" y1=\"${height - pad}\" x2=\"${width - pad}\" y2=\"${height - pad}\" stroke=\"#CBD5E1\" stroke-width=\"1.5\" />")
+                    sb.append("<line x1=\"$pad\" y1=\"$pad\" x2=\"$pad\" y2=\"${height - pad}\" stroke=\"#CBD5E1\" stroke-width=\"1.5\" />")
+
+                    // X tick labels
+                    for (step in 0..4) {
+                        val xv = minX + (step / 4.0) * spanX
+                        val gx = pad + (step / 4.0) * chartW
+                        sb.append("<text x=\"$gx\" y=\"${height - pad + 14}\" font-size=\"9\" fill=\"#64748B\" text-anchor=\"middle\">${formatTick(xv)}</text>")
+                    }
+                    // Y tick labels
+                    for (step in 0..4) {
+                        val yv = minY + (step / 4.0) * spanY
+                        val gy = height - pad - (step / 4.0) * chartH
+                        sb.append("<text x=\"${pad - 6}\" y=\"${gy + 3}\" font-size=\"9\" fill=\"#64748B\" text-anchor=\"end\">${formatTick(yv)}</text>")
+                    }
+
+                    data.series.forEachIndexed { sIdx, s ->
+                        val color = s.colorHex ?: defaultColors[sIdx % defaultColors.size]
+                        val pts = s.xValues.indices.mapNotNull { i ->
+                            val x = s.xValues.getOrNull(i) ?: return@mapNotNull null
+                            val y = s.values.getOrNull(i) ?: return@mapNotNull null
+                            Pair(mapX(x), mapY(y))
+                        }
+                        if (s.connectPoints && pts.size > 1) {
+                            val poly = pts.joinToString(" ") { "${it.first},${it.second}" }
+                            sb.append("<polyline points=\"$poly\" fill=\"none\" stroke=\"$color\" stroke-width=\"2\" />")
+                        }
+                        pts.forEach { (px, py) ->
+                            sb.append("<circle cx=\"$px\" cy=\"$py\" r=\"4\" fill=\"$color\" stroke=\"#FFFFFF\" stroke-width=\"1.5\" />")
+                        }
+                    }
+                }
+            }
             else -> {
-                // Column, Line, Area, Scatter
+                // Column, Line, Area
                 var maxVal = 10.0
                 data.series.forEach { s -> s.values.forEach { if (it > maxVal) maxVal = it } }
 
@@ -499,14 +611,14 @@ object SmartArtChartUtils {
                 val sb = StringBuilder("<div class=\"sa-hierarchy-tree\" style=\"display:flex; flex-direction:column; gap:8px;\">")
                 data.nodes.forEach { n ->
                     val indent = n.level * 24
-                    sb.append("""<div class="sa-node" data-node-id="${n.id}" data-node-level="${n.level}" style="margin-inline-start:${indent}px; border-inline-start:4px solid $primary; background:#F8FAFC; padding:8px 12px; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,0.05); display:flex; align-items:center; justify-content:space-between;"><span style="font-weight:bold; color:#0F172A;">${n.text}</span><span style="font-size:9pt; color:#64748B; background:#E2E8F0; padding:2px 6px; border-radius:10px;">مستوى ${n.level}</span></div>""")
+                    sb.append("""<div class="sa-node" data-node-id="${n.id}" data-node-level="${n.level}" style="margin-inline-start:${indent}px; border-inline-start:4px solid $primary; background:#F8FAFC; padding:8px 12px; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,0.05); display:flex; align-items:center; justify-content:space-between;"><span class="sa-node-text" contenteditable="true" data-node-id="${n.id}" style="font-weight:bold; color:#0F172A; outline:none;">${n.text}</span><span style="font-size:9pt; color:#64748B; background:#E2E8F0; padding:2px 6px; border-radius:10px;">مستوى ${n.level}</span></div>""")
                 }
                 sb.append("</div>").toString()
             }
             "cycle" -> {
                 val sb = StringBuilder("<div class=\"sa-cycle-flow\" style=\"display:flex; flex-wrap:wrap; gap:10px; justify-content:center; align-items:center;\">")
                 data.nodes.forEachIndexed { idx, n ->
-                    sb.append("""<div class="sa-node" data-node-id="${n.id}" style="border:2px solid $primary; background:#FFFFFF; color:#0F172A; padding:8px 14px; border-radius:20px; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.08);">${n.text}</div>""")
+                    sb.append("""<div class="sa-node" data-node-id="${n.id}" style="border:2px solid $primary; background:#FFFFFF; color:#0F172A; padding:8px 14px; border-radius:20px; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.08);"><span class="sa-node-text" contenteditable="true" data-node-id="${n.id}" style="outline:none;">${n.text}</span></div>""")
                     if (idx < data.nodes.size - 1) {
                         sb.append("""<span style="color:$accent; font-size:16pt; font-weight:bold;">↻</span>""")
                     }
@@ -517,7 +629,7 @@ object SmartArtChartUtils {
                 val sb = StringBuilder("<div class=\"sa-pyramid-flow\" style=\"display:flex; flex-direction:column; align-items:center; gap:6px;\">")
                 data.nodes.forEachIndexed { idx, n ->
                     val wPct = 40 + (idx * 20).coerceAtMost(55)
-                    sb.append("""<div class="sa-node" data-node-id="${n.id}" style="width:${wPct}%; background:$primary; color:#FFFFFF; padding:8px 12px; border-radius:4px; text-align:center; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.1);">${n.text}</div>""")
+                    sb.append("""<div class="sa-node" data-node-id="${n.id}" style="width:${wPct}%; background:$primary; color:#FFFFFF; padding:8px 12px; border-radius:4px; text-align:center; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.1);"><span class="sa-node-text" contenteditable="true" data-node-id="${n.id}" style="outline:none;">${n.text}</span></div>""")
                 }
                 sb.append("</div>").toString()
             }
@@ -525,7 +637,7 @@ object SmartArtChartUtils {
                 // Process / List
                 val sb = StringBuilder("<div class=\"sa-process-flow\" style=\"display:flex; flex-wrap:wrap; gap:8px; align-items:center;\">")
                 data.nodes.forEachIndexed { idx, n ->
-                    sb.append("""<div class="sa-node" data-node-id="${n.id}" style="background:$primary; color:#FFFFFF; padding:8px 14px; border-radius:6px; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.1);">${n.text}</div>""")
+                    sb.append("""<div class="sa-node" data-node-id="${n.id}" style="background:$primary; color:#FFFFFF; padding:8px 14px; border-radius:6px; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.1);"><span class="sa-node-text" contenteditable="true" data-node-id="${n.id}" style="outline:none;">${n.text}</span></div>""")
                     if (idx < data.nodes.size - 1) {
                         sb.append("""<span style="color:$primary; font-size:14pt; font-weight:bold;">➔</span>""")
                     }
@@ -535,7 +647,7 @@ object SmartArtChartUtils {
         }
 
         val titleHtml = if (data.title.isNotBlank()) "<div style=\"font-weight:bold; font-size:12pt; margin-bottom:10px; color:$primary;\">${data.title}</div>" else ""
-        return "<div class=\"smartart-block\" data-smartart-id=\"${data.id}\" data-smartart-json=\"$jsonStr\" contenteditable=\"false\" style=\"border:1.5px solid #CBD5E1; border-radius:8px; padding:12px; margin:12px 0; background:#FFFFFF; user-select:none;\">$titleHtml$nodesHtml</div>"
+        return "<div class=\"smartart-block\" data-smartart-id=\"${data.id}\" data-smartart-editable=\"true\" data-smartart-json=\"$jsonStr\" contenteditable=\"false\" style=\"border:1.5px solid #CBD5E1; border-radius:8px; padding:12px; margin:12px 0; background:#FFFFFF; user-select:text;\">$titleHtml$nodesHtml</div>"
     }
 
     fun chartToHtmlBlock(data: ChartData): String {
