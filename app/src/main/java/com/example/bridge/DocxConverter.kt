@@ -2,7 +2,6 @@ package com.example.bridge
 
 import android.util.Base64
 import com.example.model.ChartData
-import com.example.model.DocumentAnchor
 import com.example.model.DocumentImportReport
 import com.example.model.DocumentNote
 import com.example.model.DocumentPayload
@@ -12,8 +11,6 @@ import com.example.model.PageOrientation
 import com.example.model.SmartArtData
 import com.example.security.HtmlSanitizer
 import org.apache.poi.hwpf.HWPFDocument
-import org.apache.poi.hwpf.extractor.WordExtractor
-import org.apache.poi.hwpf.usermodel.CharacterRun
 import org.apache.poi.hwpf.usermodel.HeaderStories
 import org.apache.poi.hwpf.usermodel.Paragraph
 import org.apache.poi.util.Units
@@ -27,7 +24,6 @@ import org.apache.poi.xwpf.usermodel.XWPFParagraph
 import org.apache.poi.xwpf.usermodel.XWPFTable
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
-import org.jsoup.nodes.Node
 import org.jsoup.nodes.TextNode
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.STPageOrientation
 import java.io.ByteArrayInputStream
@@ -369,7 +365,17 @@ object DocxConverter {
                 docxToPayload(ByteArrayInputStream(bytes))
             }
             isOle2Doc || ext in listOf("doc", "dot") -> {
-                hwpfToPayload(ByteArrayInputStream(bytes))
+                // A corrupt or truncated OLE2 file must not crash the import flow.
+                // Return an explicit, user-visible report instead of an exception.
+                runCatching { hwpfToPayload(ByteArrayInputStream(bytes)) }.getOrElse {
+                    DocumentPayload(
+                        bodyHtml = "<p><br></p>",
+                        importReport = DocumentImportReport(
+                            unsupportedCount = 1,
+                            unsupportedReasons = listOf("\u062a\u0639\u0630\u0651\u0631 \u0642\u0631\u0627\u0621\u0629 \u0645\u0644\u0641 DOC: \u0627\u0644\u0645\u0644\u0641 \u062a\u0627\u0644\u0641 \u0623\u0648 \u063a\u064a\u0631 \u0645\u062f\u0639\u0648\u0645")
+                        )
+                    )
+                }
             }
             isRtf || ext == "rtf" -> {
                 rtfToPayload(bytes)
@@ -656,8 +662,13 @@ object DocxConverter {
         var footerHtml = ""
         runCatching {
             val stories = HeaderStories(document)
-            val hText = (stories.firstHeader ?: stories.oddHeader ?: stories.evenHeader)?.trim() ?: ""
-            val fText = (stories.firstFooter ?: stories.oddFooter ?: stories.evenFooter)?.trim() ?: ""
+            // POI returns "" (not null) for stories that do not exist, so a
+            // plain `?:` chain would select the empty first-header and drop a
+            // real odd-header. Pick the first non-blank story instead.
+            val hText = listOf(stories.firstHeader, stories.oddHeader, stories.evenHeader)
+                .firstOrNull { !it.isNullOrBlank() }?.trim() ?: ""
+            val fText = listOf(stories.firstFooter, stories.oddFooter, stories.evenFooter)
+                .firstOrNull { !it.isNullOrBlank() }?.trim() ?: ""
             if (hText.isNotBlank()) headerHtml = "<p>${escapeHtml(hText)}</p>"
             if (fText.isNotBlank()) footerHtml = "<p>${escapeHtml(fText)}</p>"
         }
@@ -737,7 +748,16 @@ object DocxConverter {
             }
 
             val rawText = run.text() ?: ""
-            val cleanText = rawText.replace("\u0001", "").replace("\u0008", "")
+            // Word stores structural markers inside run text: \r = paragraph
+            // end, \u0007 = table cell end, \u000b = line break, \u0002 =
+            // footnote/annotation reference. They must never reach the HTML.
+            val cleanText = rawText
+                .replace("\u000b", " ")
+                .replace("\r", "")
+                .replace("\u0007", "")
+                .replace("\u0001", "")
+                .replace("\u0002", "")
+                .replace("\u0008", "")
             val text = escapeHtml(cleanText)
             if (text.isNotEmpty()) {
                 pHasText = true

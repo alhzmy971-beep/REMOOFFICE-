@@ -49,6 +49,18 @@ object OoxmlPackageEnricher {
 
         // ---- SmartArt ----
         smartArts.forEach { sa ->
+            // When the SmartArt came from this very package, edit it in place:
+            // rewrite only its data part and keep the existing drawing, layout,
+            // style, colours, relationships and surrounding document untouched.
+            val existingDataPart = sa.originalPartName
+            if (existingDataPart != null && entries.containsKey(existingDataPart)) {
+                if (sa.userModified) {
+                    entries[existingDataPart] =
+                        generateSmartArtDataXml(sa, partNumber(existingDataPart)).toByteArray(Charsets.UTF_8)
+                }
+                return@forEach
+            }
+
             val num = allocateDiagramNumber(entries)
             val marker = "___REMO_SMARTART_MARKER_${sa.id}___"
 
@@ -118,6 +130,16 @@ object OoxmlPackageEnricher {
 
         // ---- Charts ----
         charts.forEach { chart ->
+            // Same in-place rule as SmartArt: if the chart already exists in the
+            // source package, regenerate that exact part instead of appending a
+            // second chart and a duplicate relationship.
+            val existingChartPart = chart.originalPartName
+            if (existingChartPart != null && entries.containsKey(existingChartPart)) {
+                entries[existingChartPart] =
+                    generateChartXml(chart, partNumber(existingChartPart)).toByteArray(Charsets.UTF_8)
+                return@forEach
+            }
+
             val num = allocateChartNumber(entries)
             val marker = "___REMO_CHART_MARKER_${chart.id}___"
             val rIdChart = uniqueRelId(relsXml, "rId_chart_$num")
@@ -577,6 +599,10 @@ object OoxmlPackageEnricher {
         while (entries.containsKey("word/charts/chart$n.xml")) n++
         return n
     }
+
+    /** Extracts the trailing number from e.g. `word/charts/chart3.xml` (defaults to 1). */
+    private fun partNumber(partName: String): Int =
+        Regex("(\\d+)\\.xml$").find(partName)?.groupValues?.get(1)?.toIntOrNull() ?: 1
 
     private fun uniqueRelId(relsXml: String, base: String): String {
         var candidate = base

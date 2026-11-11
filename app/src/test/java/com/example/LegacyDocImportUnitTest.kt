@@ -116,11 +116,23 @@ class LegacyDocImportUnitTest {
     }
 
     @Test
-    fun testDetectAndLoadDocFileFallbackPreservation() {
-        // Test detectAndLoadDocument with an empty/small or fallback stream
-        val dummyBytes = "Dummy document content for fallback test".toByteArray(Charsets.UTF_8)
-        val payload = DocxConverter.detectAndLoadDocument(dummyBytes, "test.doc")
+    fun testDetectAndLoadCorruptDocFileReturnsGracefulReport() {
+        // A real .doc is an OLE2 compound file. Feed bytes that carry the OLE2
+        // magic but are otherwise random/truncated: the importer must degrade
+        // gracefully with an explicit report instead of throwing or inventing
+        // text from the raw bytes.
+        val corrupt = ByteArray(2048).also { java.util.Random(7).nextBytes(it) }
+        corrupt[0] = 0xD0.toByte()
+        corrupt[1] = 0xCF.toByte()
+        corrupt[2] = 0x11.toByte()
+        corrupt[3] = 0xE0.toByte()
+
+        val payload = DocxConverter.detectAndLoadDocument(corrupt, "doc", "corrupt.doc")
         assertNotNull(payload)
-        assertTrue(payload.bodyHtml.isNotEmpty())
+        assertEquals("<p><br></p>", payload.bodyHtml)
+        val report = payload.importReport
+        assertNotNull(report)
+        assertEquals(1, report!!.unsupportedCount)
+        assertTrue(report.unsupportedReasons.any { it.contains("DOC") })
     }
 }
