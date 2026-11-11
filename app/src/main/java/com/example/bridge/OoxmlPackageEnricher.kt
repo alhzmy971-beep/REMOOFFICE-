@@ -170,8 +170,23 @@ object OoxmlPackageEnricher {
         val pts = StringBuilder()
         val cxns = StringBuilder()
 
-        // Root point
-        pts.append("""<dgm:pt modelId="0" type="doc"><dgm:prSet/><dgm:spPr/></dgm:pt>""")
+        val titleEscaped = escapeXml(data.title.ifBlank { "SmartArt $num" })
+        // Root point with title
+        pts.append("""
+            <dgm:pt modelId="0" type="doc">
+                <dgm:prSet/>
+                <dgm:spPr/>
+                <dgm:t>
+                    <a:bodyPr/>
+                    <a:lstStyle/>
+                    <a:p>
+                        <a:r>
+                            <a:t>$titleEscaped</a:t>
+                        </a:r>
+                    </a:p>
+                </dgm:t>
+            </dgm:pt>
+        """.trimIndent())
 
         data.nodes.forEachIndexed { idx, node ->
             val modelId = node.modelId?.ifBlank { null } ?: "${idx + 1}"

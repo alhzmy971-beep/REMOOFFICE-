@@ -172,7 +172,10 @@ object OoxmlDiagramChartParser {
                 val ptType = pt.attr("type")
 
                 // Extract all textual content inside this point
-                var text = pt.select("dgm\\:t, a\\:t, t").text().trim()
+                var text = pt.select("a\\:t").text().trim()
+                if (text.isEmpty()) {
+                    text = pt.select("dgm\\:t").text().trim()
+                }
                 if (text.isEmpty()) {
                     text = pt.select("a\\:p, p").text().trim()
                 }
@@ -234,7 +237,7 @@ object OoxmlDiagramChartParser {
                 combined.contains("cycle") || combined.contains("ring") || combined.contains("radial") -> "cycle"
                 combined.contains("pyramid") -> "pyramid"
                 combined.contains("matrix") || combined.contains("grid") -> "matrix"
-                combined.contains("relationship") || combined.contains("venn") -> "relationship"
+                combined.contains("venn") || (combined.contains("relationship") && !combined.contains("relationships")) -> "relationship"
                 combined.contains("list") -> "list"
                 else -> "process"
             }
@@ -317,10 +320,11 @@ object OoxmlDiagramChartParser {
 
             // Categories
             val categories = mutableListOf<String>()
-            val catPts = doc.select("c\\:cat c\\:pt, cat pt, c\\:xVal c\\:pt, xVal pt")
-            catPts.forEach { pt ->
-                val v = pt.select("c\\:v, v").text().trim()
-                if (v.isNotEmpty()) categories.add(v)
+            doc.select("c\\:cat pt, cat pt, c\\:strLit pt, strLit pt, c\\:cat c\\:pt, cat c\\:pt, c\\:xVal pt, xVal pt").forEach { pt ->
+                val v = pt.select("c\\:v, v, a\\:t, t").text().trim()
+                if (v.isNotEmpty() && !categories.contains(v)) {
+                    categories.add(v)
+                }
             }
 
             // Series
@@ -330,10 +334,10 @@ object OoxmlDiagramChartParser {
 
             serElems.forEachIndexed { idx, ser ->
                 val serName = ser.select("c\\:tx c\\:v, tx v, c\\:tx a\\:t, tx t").text().trim().ifEmpty { "سلسلة ${idx + 1}" }
-                val valPts = ser.select("c\\:val c\\:pt, val pt, c\\:yVal c\\:pt, yVal pt")
+                val valPts = ser.select("c\\:val pt, val pt, c\\:numLit pt, numLit pt, c\\:numLit c\\:pt, numLit c\\:pt, c\\:yVal pt, yVal pt")
                 val values = mutableListOf<Double>()
                 valPts.forEach { pt ->
-                    pt.select("c\\:v, v").text().trim().toDoubleOrNull()?.let { values.add(it) }
+                    pt.select("c\\:v, v, a\\:t, t").text().trim().toDoubleOrNull()?.let { values.add(it) }
                 }
 
                 val explicitColor = ser.select("c\\:spPr a\\:solidFill a\\:srgbClr, spPr solidFill srgbClr").firstOrNull()?.attr("val")?.let { "#$it" }
