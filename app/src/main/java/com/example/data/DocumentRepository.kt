@@ -296,6 +296,18 @@ class DocumentRepository(baseDir: File) {
                 put("anchor", serializeAnchor(note.anchor))
             })
         }
+        val smartArtsArr = JSONArray()
+        payload.smartArts.forEach { sa ->
+            runCatching {
+                smartArtsArr.put(JSONObject(com.example.bridge.SmartArtChartUtils.smartArtToJson(sa)))
+            }
+        }
+        val chartsArr = JSONArray()
+        payload.charts.forEach { chart ->
+            runCatching {
+                chartsArr.put(JSONObject(com.example.bridge.SmartArtChartUtils.chartToJson(chart)))
+            }
+        }
         val props = payload.properties
         val propsObj = JSONObject().apply {
             put("author", props.author)
@@ -316,6 +328,8 @@ class DocumentRepository(baseDir: File) {
             put("styles", stylesArr)
             put("bookmarks", bookmarksArr)
             put("notes", notesArr)
+            put("smartArts", smartArtsArr)
+            put("charts", chartsArr)
             put("properties", propsObj)
         }.toString()
     }
@@ -437,6 +451,48 @@ class DocumentRepository(baseDir: File) {
                     ))
                 }
             }
+
+            val smartArts = mutableListOf<com.example.model.SmartArtData>()
+            obj.optJSONArray("smartArts")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    runCatching {
+                        val saObj = arr.getJSONObject(i)
+                        smartArts.add(com.example.bridge.SmartArtChartUtils.jsonToSmartArt(saObj.toString()))
+                    }
+                }
+            }
+
+            val charts = mutableListOf<com.example.model.ChartData>()
+            obj.optJSONArray("charts")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    runCatching {
+                        val chartObj = arr.getJSONObject(i)
+                        charts.add(com.example.bridge.SmartArtChartUtils.jsonToChart(chartObj.toString()))
+                    }
+                }
+            }
+
+            val bodyStr = obj.optString("bodyHtml", "<p><br></p>")
+            // Extraction fallback if saved array was empty but body has embedded blocks
+            if (smartArts.isEmpty() && bodyStr.contains("data-smartart-json")) {
+                runCatching {
+                    val doc = org.jsoup.Jsoup.parse(bodyStr)
+                    doc.select(".smartart-block[data-smartart-json]").forEach { el ->
+                        val rawJson = java.net.URLDecoder.decode(el.attr("data-smartart-json"), "UTF-8")
+                        smartArts.add(com.example.bridge.SmartArtChartUtils.jsonToSmartArt(rawJson))
+                    }
+                }
+            }
+            if (charts.isEmpty() && bodyStr.contains("data-chart-json")) {
+                runCatching {
+                    val doc = org.jsoup.Jsoup.parse(bodyStr)
+                    doc.select(".chart-block[data-chart-json]").forEach { el ->
+                        val rawJson = java.net.URLDecoder.decode(el.attr("data-chart-json"), "UTF-8")
+                        charts.add(com.example.bridge.SmartArtChartUtils.jsonToChart(rawJson))
+                    }
+                }
+            }
+
             val propsObj = obj.optJSONObject("properties")
             val properties = if (propsObj != null) DocumentProperties(
                 author = propsObj.optString("author", "المستخدم"),
@@ -449,7 +505,7 @@ class DocumentRepository(baseDir: File) {
             ) else DocumentProperties()
 
             DocumentPayload(
-                bodyHtml = obj.optString("bodyHtml", "<p><br></p>"),
+                bodyHtml = bodyStr,
                 headerHtml = obj.optString("headerHtml", ""),
                 footerHtml = obj.optString("footerHtml", ""),
                 pageConfig = cfg,
@@ -458,6 +514,8 @@ class DocumentRepository(baseDir: File) {
                 styles = styles,
                 bookmarks = bookmarks,
                 notes = notes,
+                smartArts = smartArts,
+                charts = charts,
                 properties = properties
             )
         } catch (_: Exception) {

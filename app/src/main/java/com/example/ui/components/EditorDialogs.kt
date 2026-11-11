@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1106,7 +1108,9 @@ fun SmartArtDialog(
         "process" to "متتالي (Process)",
         "cycle" to "دائري (Cycle)",
         "list" to "قائمة (List)",
-        "matrix" to "مصفوفة (Matrix)"
+        "matrix" to "مصفوفة (Matrix)",
+        "pyramid" to "هرمي (Pyramid)",
+        "relationship" to "علاقات (Relationship)"
     )
 
     val colors = listOf("#1A56DB", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#0284C7")
@@ -1129,7 +1133,9 @@ fun SmartArtDialog(
 
                 Text("نوع التخطيط:", style = MaterialTheme.typography.titleSmall)
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     layouts.forEach { (key, label) ->
@@ -1274,7 +1280,9 @@ fun ChartDialog(
         "line" to "خطي (Line)",
         "pie" to "دائري (Pie)",
         "doughnut" to "حلقي (Doughnut)",
-        "area" to "مساحي (Area)"
+        "area" to "مساحي (Area)",
+        "scatter" to "مبعثر (Scatter)",
+        "radar" to "راداري (Radar)"
     )
 
     AlertDialog(
@@ -1295,7 +1303,9 @@ fun ChartDialog(
 
                 Text("نوع المخطط:", style = MaterialTheme.typography.titleSmall)
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     chartTypes.forEach { (key, label) ->

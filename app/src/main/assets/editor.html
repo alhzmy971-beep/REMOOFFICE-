@@ -1819,6 +1819,39 @@
         }
       });
       contentHtml += `</div>`;
+    } else if (layout === 'pyramid') {
+      contentHtml = `<div class="sa-pyramid-flow" style="display:flex; flex-direction:column; align-items:center; gap:6px;">`;
+      const count = Math.max(1, nodes.length);
+      nodes.forEach((node, idx) => {
+        const widthPct = Math.round(35 + (idx / count) * 60);
+        contentHtml += `
+          <div class="sa-node sa-pyramid-card" style="width:${widthPct}%; background:${primaryColor}; color:#FFFFFF; padding:8px 12px; border-radius:4px; text-align:center; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+            ${node.text || ('مستوى ' + (idx+1))}
+          </div>`;
+      });
+      contentHtml += `</div>`;
+    } else if (layout === 'matrix') {
+      contentHtml = `<div class="sa-matrix-grid" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">`;
+      nodes.forEach((node, idx) => {
+        const bgChoice = idx % 2 === 0 ? bg : '#E0E7FF';
+        contentHtml += `
+          <div class="sa-node sa-matrix-card" style="background:${bgChoice}; border-top:3px solid ${primaryColor}; padding:10px; border-radius:6px; min-height:50px;">
+            <div style="font-weight:bold; color:#0F172A;">${node.text || ('قسم ' + (idx+1))}</div>
+          </div>`;
+      });
+      contentHtml += `</div>`;
+    } else if (layout === 'relationship') {
+      contentHtml = `<div class="sa-relationship-flow" style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; align-items:center;">`;
+      nodes.forEach((node, idx) => {
+        contentHtml += `
+          <div class="sa-node sa-rel-card" style="border:2px dashed ${primaryColor}; background:${bg}; padding:10px 14px; border-radius:10px; font-weight:bold; color:#0F172A;">
+            ${node.text || ('عنصر ' + (idx+1))}
+          </div>`;
+        if (idx < nodes.length - 1) {
+          contentHtml += `<span style="color:${accentColor}; font-weight:bold; font-size:16pt;">⟷</span>`;
+        }
+      });
+      contentHtml += `</div>`;
     } else {
       contentHtml = `<div class="sa-list-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap:10px;">`;
       nodes.forEach(node => {
@@ -1841,7 +1874,7 @@
 
   function renderChartHtml(chartObj) {
     const data = typeof chartObj === 'string' ? JSON.parse(chartObj) : chartObj;
-    const type = (data.chartType || 'column').toLowerCase();
+    const type = (data.chartType || data.type || 'column').toLowerCase();
     const title = data.title || 'مخطط بياني';
     const categories = data.categories || [];
     const seriesList = data.series || [];
@@ -1952,6 +1985,55 @@
           svgBody += `<path d="M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z" fill="${color}"/>`;
         }
         currentAngle += sliceAngle;
+      });
+    } else if (type === 'radar') {
+      const cx = width / 2;
+      const cy = height / 2;
+      const radius = 75;
+      const catCount = Math.max(3, categories.length);
+      const angleStep = (2 * Math.PI) / catCount;
+
+      [0.33, 0.66, 1.0].forEach(scale => {
+        const polyPoints = [];
+        for (let i = 0; i < catCount; i++) {
+          const a = i * angleStep - Math.PI / 2;
+          const x = cx + radius * scale * Math.cos(a);
+          const y = cy + radius * scale * Math.sin(a);
+          polyPoints.push(`${x},${y}`);
+        }
+        svgBody += `<polygon points="${polyPoints.join(' ')}" fill="none" stroke="#E2E8F0" stroke-width="1"/>`;
+      });
+
+      for (let i = 0; i < catCount; i++) {
+        const a = i * angleStep - Math.PI / 2;
+        const x = cx + radius * Math.cos(a);
+        const y = cy + radius * Math.sin(a);
+        svgBody += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#CBD5E1" stroke-width="1"/>`;
+        const lx = cx + (radius + 14) * Math.cos(a);
+        const ly = cy + (radius + 14) * Math.sin(a);
+        const cat = categories[i] || '';
+        svgBody += `<text x="${lx}" y="${ly}" font-size="9" text-anchor="middle" fill="#64748B">${cat}</text>`;
+      }
+
+      let maxVal = 10;
+      seriesList.forEach(s => {
+        (s.values || []).forEach(v => { if (v > maxVal) maxVal = v; });
+      });
+
+      seriesList.forEach((s, sIdx) => {
+        const color = s.colorHex || defaultColors[sIdx % defaultColors.length];
+        const points = [];
+        for (let i = 0; i < catCount; i++) {
+          const val = (s.values && s.values[i] !== undefined) ? s.values[i] : 0;
+          const r = (val / maxVal) * radius;
+          const a = i * angleStep - Math.PI / 2;
+          const x = cx + r * Math.cos(a);
+          const y = cy + r * Math.sin(a);
+          points.push(`${x},${y}`);
+        }
+        if (points.length > 0) {
+          svgBody += `<polygon points="${points.join(' ')}" fill="${color}" fill-opacity="0.25" stroke="${color}" stroke-width="2"/>`;
+        }
       });
     } else {
       svgBody += `<rect x="10" y="10" width="${width-20}" height="${height-20}" fill="#F8FAFC" rx="8" stroke="#E2E8F0"/>`;

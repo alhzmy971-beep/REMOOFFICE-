@@ -1,6 +1,7 @@
 package com.example.bridge
 
 import android.util.Base64
+import com.example.model.ChartData
 import com.example.model.DocumentAnchor
 import com.example.model.DocumentImportReport
 import com.example.model.DocumentNote
@@ -8,9 +9,13 @@ import com.example.model.DocumentPayload
 import com.example.model.MarginPreset
 import com.example.model.PageConfig
 import com.example.model.PageOrientation
+import com.example.model.SmartArtData
 import com.example.security.HtmlSanitizer
-import com.example.bridge.SmartArtChartUtils
-import com.example.bridge.OoxmlDiagramChartParser
+import org.apache.poi.hwpf.HWPFDocument
+import org.apache.poi.hwpf.extractor.WordExtractor
+import org.apache.poi.hwpf.usermodel.CharacterRun
+import org.apache.poi.hwpf.usermodel.HeaderStories
+import org.apache.poi.hwpf.usermodel.Paragraph
 import org.apache.poi.util.Units
 import org.apache.poi.xwpf.model.XWPFHeaderFooterPolicy
 import org.apache.poi.xwpf.usermodel.BodyElementType
@@ -19,16 +24,14 @@ import org.apache.poi.xwpf.usermodel.ParagraphAlignment
 import org.apache.poi.xwpf.usermodel.UnderlinePatterns
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 import org.apache.poi.xwpf.usermodel.XWPFParagraph
-import org.apache.poi.xwpf.usermodel.XWPFRun
 import org.apache.poi.xwpf.usermodel.XWPFTable
-import org.apache.poi.hwpf.HWPFDocument
-import org.apache.poi.hwpf.extractor.WordExtractor
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.nodes.Node
 import org.jsoup.nodes.TextNode
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.STPageOrientation
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.math.BigInteger
@@ -57,20 +60,47 @@ object DocxConverter {
             }
         }
 
+        val smartArtsToExport = mutableListOf<SmartArtData>()
+        val chartsToExport = mutableListOf<ChartData>()
+
         val sanitized = HtmlSanitizer.sanitizeHtml(payload.bodyHtml)
         val doc = Jsoup.parseBodyFragment(sanitized)
         val body = doc.body()
 
         for (child in body.children()) {
-            processBlockElement(document, child)
+            processBlockElement(document, child, payload, smartArtsToExport, chartsToExport)
+        }
+
+        // Ensure any smartArts or charts on the payload are preserved even if not present as HTML blocks
+        payload.smartArts.forEach { sa ->
+            if (smartArtsToExport.none { it.id == sa.id }) {
+                smartArtsToExport.add(sa)
+                val p = document.createParagraph()
+                p.createRun().setText("___REMO_SMARTART_MARKER_${sa.id}___")
+            }
+        }
+        payload.charts.forEach { ch ->
+            if (chartsToExport.none { it.id == ch.id }) {
+                chartsToExport.add(ch)
+                val p = document.createParagraph()
+                p.createRun().setText("___REMO_CHART_MARKER_${ch.id}___")
+            }
         }
 
         if (document.paragraphs.isEmpty() && document.tables.isEmpty()) {
             document.createParagraph()
         }
 
-        document.write(outputStream)
+        val tempBaos = ByteArrayOutputStream()
+        document.write(tempBaos)
         document.close()
+        val tempBytes = tempBaos.toByteArray()
+
+        try {
+            OoxmlPackageEnricher.enrichDocxPackage(tempBytes, smartArtsToExport, chartsToExport, outputStream)
+        } catch (_: Exception) {
+            outputStream.write(tempBytes)
+        }
     }
 
     private fun configurePageLayout(document: XWPFDocument, config: PageConfig) {
@@ -104,7 +134,13 @@ object DocxConverter {
         }
     }
 
-    private fun processBlockElement(document: XWPFDocument, element: Element) {
+    private fun processBlockElement(
+        document: XWPFDocument,
+        element: Element,
+        payload: DocumentPayload,
+        smartArtsToExport: MutableList<SmartArtData>,
+        chartsToExport: MutableList<ChartData>
+    ) {
         val tag = element.tagName().lowercase()
         if (element.hasClass("page-break")) {
             val p = document.createParagraph()
@@ -112,63 +148,40 @@ object DocxConverter {
             return
         }
 
-        if (element.hasClass("smartart-block")) {
+        if (element.hasClass("smartart-block") || element.hasAttr("data-smartart-id")) {
+            val saId = element.attr("data-smartart-id")
             val jsonAttr = element.attr("data-smartart-json")
-            val smartArt = if (jsonAttr.isNotBlank()) {
-                val decoded = java.net.URLDecoder.decode(jsonAttr, "UTF-8")
-                SmartArtChartUtils.jsonToSmartArt(decoded)
-            } else null
+            val smartArt = (if (jsonAttr.isNotBlank()) {
+                runCatching {
+                    val decoded = java.net.URLDecoder.decode(jsonAttr, "UTF-8")
+                    SmartArtChartUtils.jsonToSmartArt(decoded)
+                }.getOrNull()
+            } else null) ?: payload.smartArts.find { it.id == saId }
 
-            val p = document.createParagraph()
-            val run = p.createRun()
-            run.isBold = true
-            run.color = "1A56DB"
-            run.setText("📊 SmartArt: ${smartArt?.title ?: "عنصر تجميعي"}")
-
-            if (smartArt != null && smartArt.nodes.isNotEmpty()) {
-                val table = document.createTable(smartArt.nodes.size + 1, 2)
-                table.getRow(0).getCell(0).text = "المستوى / Level"
-                table.getRow(0).getCell(1).text = "النص / Text"
-                smartArt.nodes.forEachIndexed { idx, node ->
-                    val row = table.getRow(idx + 1)
-                    row.getCell(0).text = node.level.toString()
-                    row.getCell(1).text = node.text
-                }
+            if (smartArt != null) {
+                smartArtsToExport.add(smartArt)
+                val p = document.createParagraph()
+                val r = p.createRun()
+                r.setText("___REMO_SMARTART_MARKER_${smartArt.id}___")
             }
             return
         }
 
-        if (element.hasClass("chart-block")) {
+        if (element.hasClass("chart-block") || element.hasAttr("data-chart-id")) {
+            val chartId = element.attr("data-chart-id")
             val jsonAttr = element.attr("data-chart-json")
-            val chart = if (jsonAttr.isNotBlank()) {
-                val decoded = java.net.URLDecoder.decode(jsonAttr, "UTF-8")
-                SmartArtChartUtils.jsonToChart(decoded)
-            } else null
+            val chart = (if (jsonAttr.isNotBlank()) {
+                runCatching {
+                    val decoded = java.net.URLDecoder.decode(jsonAttr, "UTF-8")
+                    SmartArtChartUtils.jsonToChart(decoded)
+                }.getOrNull()
+            } else null) ?: payload.charts.find { it.id == chartId }
 
-            val p = document.createParagraph()
-            val run = p.createRun()
-            run.isBold = true
-            run.color = "10B981"
-            run.setText("📈 مخطط بياني / Chart: ${chart?.title ?: ""}")
-
-            if (chart != null && chart.categories.isNotEmpty()) {
-                val cols = chart.categories.size + 1
-                val rows = chart.series.size + 1
-                val table = document.createTable(rows, cols)
-
-                table.getRow(0).getCell(0).text = "السلسلة / الفئة"
-                chart.categories.forEachIndexed { cIdx, cat ->
-                    table.getRow(0).getCell(cIdx + 1).text = cat
-                }
-                chart.series.forEachIndexed { sIdx, s ->
-                    val row = table.getRow(sIdx + 1)
-                    row.getCell(0).text = s.name
-                    s.values.forEachIndexed { vIdx, v ->
-                        if (vIdx + 1 < cols) {
-                            row.getCell(vIdx + 1).text = v.toString()
-                        }
-                    }
-                }
+            if (chart != null) {
+                chartsToExport.add(chart)
+                val p = document.createParagraph()
+                val r = p.createRun()
+                r.setText("___REMO_CHART_MARKER_${chart.id}___")
             }
             return
         }
@@ -178,177 +191,143 @@ object DocxConverter {
                 val rows = element.select("tr")
                 if (rows.isNotEmpty()) {
                     val maxCols = rows.maxOfOrNull { it.select("td, th").size } ?: 1
-                    val table = document.createTable(rows.size, maxCols.coerceAtLeast(1))
-                    rows.forEachIndexed { rIdx, tr ->
-                        val cells = tr.select("td, th")
-                        val row = table.getRow(rIdx)
-                        cells.forEachIndexed { cIdx, td ->
-                            if (cIdx < row.tableCells.size) {
-                                val cell = row.getCell(cIdx)
-                                cell.text = td.text()
+                    val table = document.createTable(rows.size, maxCols)
+                    rows.forEachIndexed { rIdx, row ->
+                        val cells = row.select("td, th")
+                        cells.forEachIndexed { cIdx, cell ->
+                            if (cIdx < maxCols) {
+                                val cellObj = table.getRow(rIdx).getCell(cIdx)
+                                cellObj.removeParagraph(0)
+                                val cellParas = cell.select("p")
+                                if (cellParas.isEmpty()) {
+                                    val cp = cellObj.addParagraph()
+                                    processInlineNodes(cp, cell)
+                                } else {
+                                    cellParas.forEach { pEl ->
+                                        val cp = cellObj.addParagraph()
+                                        processInlineNodes(cp, pEl)
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
-            "ul", "ol" -> {
-                val items = element.select("> li")
-                items.forEachIndexed { index, li ->
-                    val p = document.createParagraph()
-                    val prefix = if (tag == "ol") "${index + 1}. " else "• "
-                    val run = p.createRun()
-                    run.setText(prefix)
-                    processInlineNodes(p, li.childNodes(), InlineStyle())
+            "p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "div" -> {
+                val p = document.createParagraph()
+                when (tag) {
+                    "h1" -> { p.style = "Heading 1" }
+                    "h2" -> { p.style = "Heading 2" }
+                    "h3" -> { p.style = "Heading 3" }
+                }
+
+                val textAlign = element.attr("style").split(";")
+                    .map { it.trim().lowercase() }
+                    .firstOrNull { it.startsWith("text-align:") }
+                    ?.substringAfter(":")?.trim()
+
+                when (textAlign) {
+                    "center" -> p.alignment = ParagraphAlignment.CENTER
+                    "right" -> p.alignment = ParagraphAlignment.RIGHT
+                    "justify" -> p.alignment = ParagraphAlignment.BOTH
+                    else -> p.alignment = ParagraphAlignment.LEFT
+                }
+
+                processInlineNodes(p, element)
+                if (p.runs.isEmpty()) {
+                    p.createRun().setText("")
                 }
             }
-            "h1", "h2", "h3", "h4", "h5", "h6" -> {
-                val p = document.createParagraph()
-                applyParagraphAlignment(p, element)
-                val fontSize = when (tag) {
-                    "h1" -> 22
-                    "h2" -> 18
-                    "h3" -> 16
-                    else -> 14
+            "ul", "ol" -> {
+                val items = element.select("li")
+                items.forEach { li ->
+                    val p = document.createParagraph()
+                    val bullet = if (tag == "ol") "1. " else "• "
+                    p.createRun().setText(bullet)
+                    processInlineNodes(p, li)
                 }
-                processInlineNodes(p, element.childNodes(), InlineStyle(bold = true, fontSizePt = fontSize))
             }
             else -> {
                 val p = document.createParagraph()
-                applyParagraphAlignment(p, element)
-                processInlineNodes(p, element.childNodes(), InlineStyle())
+                processInlineNodes(p, element)
             }
         }
     }
 
-    private fun applyParagraphAlignment(p: XWPFParagraph, element: Element) {
-        val style = element.attr("style").lowercase()
-        val alignAttr = element.attr("align").lowercase()
-        when {
-            style.contains("text-align: center") || alignAttr == "center" ->
-                p.alignment = ParagraphAlignment.CENTER
-            style.contains("text-align: right") || alignAttr == "right" ->
-                p.alignment = ParagraphAlignment.RIGHT
-            style.contains("text-align: justify") || alignAttr == "justify" ->
-                p.alignment = ParagraphAlignment.BOTH
-            else -> p.alignment = ParagraphAlignment.LEFT
-        }
-    }
-
-    private data class InlineStyle(
-        val bold: Boolean = false,
-        val italic: Boolean = false,
-        val underline: Boolean = false,
-        val strike: Boolean = false,
-        val colorHex: String? = null,
-        val fontFamily: String? = null,
-        val fontSizePt: Int? = null
-    )
-
-    private fun processInlineNodes(p: XWPFParagraph, nodes: List<Node>, currentStyle: InlineStyle) {
-        for (node in nodes) {
-            if (node is TextNode) {
-                val text = node.wholeText
-                if (text.isNotEmpty()) {
-                    val run = p.createRun()
-                    applyRunStyle(run, currentStyle)
-                    run.setText(text)
-                }
-            } else if (node is Element) {
-                val tag = node.tagName().lowercase()
-                if (tag == "br") {
-                    p.createRun().addBreak()
-                    continue
-                }
-                if (tag == "img") {
-                    insertBase64Image(p, node.attr("src"))
-                    continue
-                }
-                var nextStyle = currentStyle
-                when (tag) {
-                    "b", "strong" -> nextStyle = nextStyle.copy(bold = true)
-                    "i", "em" -> nextStyle = nextStyle.copy(italic = true)
-                    "u" -> nextStyle = nextStyle.copy(underline = true)
-                    "s", "strike", "del" -> nextStyle = nextStyle.copy(strike = true)
-                }
-                val styleAttr = node.attr("style")
-                if (styleAttr.isNotEmpty()) {
-                    nextStyle = parseInlineCss(styleAttr, nextStyle)
-                }
-                if (tag == "font") {
-                    val color = node.attr("color")
-                    if (color.isNotEmpty()) {
-                        nextStyle = nextStyle.copy(colorHex = cleanHex(color))
-                    }
-                    val face = node.attr("face")
-                    if (face.isNotEmpty()) {
-                        nextStyle = nextStyle.copy(fontFamily = face)
+    private fun processInlineNodes(
+        p: XWPFParagraph,
+        container: Element,
+        inheritedBold: Boolean = false,
+        inheritedItalic: Boolean = false,
+        inheritedUnderline: Boolean = false,
+        inheritedColor: String? = null,
+        inheritedFont: String? = null,
+        inheritedSize: Double? = null
+    ) {
+        for (node in container.childNodes()) {
+            when (node) {
+                is TextNode -> {
+                    val text = node.text()
+                    if (text.isNotEmpty()) {
+                        val run = p.createRun()
+                        run.setText(text)
+                        if (inheritedBold) run.isBold = true
+                        if (inheritedItalic) run.isItalic = true
+                        if (inheritedUnderline) run.underline = UnderlinePatterns.SINGLE
+                        inheritedColor?.let { run.color = it }
+                        inheritedFont?.let { run.fontFamily = it }
+                        inheritedSize?.let { run.fontSize = it.toInt() }
                     }
                 }
-                processInlineNodes(p, node.childNodes(), nextStyle)
+                is Element -> {
+                    val tagName = node.tagName().lowercase()
+                    if (tagName == "br") {
+                        p.createRun().addBreak()
+                        continue
+                    }
+                    if (tagName == "img") {
+                        val src = node.attr("src")
+                        if (src.startsWith("data:image/")) {
+                            addBase64Picture(p, src)
+                        }
+                        continue
+                    }
+
+                    var isBold = inheritedBold || tagName in listOf("b", "strong")
+                    var isItalic = inheritedItalic || tagName in listOf("i", "em")
+                    var isUnderline = inheritedUnderline || tagName == "u"
+                    var color = inheritedColor
+                    var font = inheritedFont
+                    var size = inheritedSize
+
+                    val style = node.attr("style").lowercase()
+                    if (style.isNotEmpty()) {
+                        if (style.contains("font-weight: bold") || style.contains("font-weight:bold") || style.contains("font-weight: 700")) isBold = true
+                        if (style.contains("font-style: italic") || style.contains("font-style:italic")) isItalic = true
+                        if (style.contains("text-decoration: underline") || style.contains("text-decoration:underline")) isUnderline = true
+
+                        val colorMatch = Regex("color:\\s*#?([0-9a-f]{6})", RegexOption.IGNORE_CASE).find(style)
+                        colorMatch?.let { color = it.groupValues[1].uppercase() }
+
+                        val fontMatch = Regex("font-family:\\s*['\"]?([^;'\",]+)['\"]?").find(style)
+                        fontMatch?.let { font = it.groupValues[1].trim() }
+
+                        val sizeMatch = Regex("font-size:\\s*([0-9]+(?:\\.[0-9]+)?)(?:pt|px)?").find(style)
+                        sizeMatch?.let { size = it.groupValues[1].toDoubleOrNull() }
+                    }
+
+                    processInlineNodes(p, node, isBold, isItalic, isUnderline, color, font, size)
+                }
             }
         }
     }
 
-    private fun parseInlineCss(css: String, base: InlineStyle): InlineStyle {
-        var result = base
-        val declarations = css.split(";")
-        for (decl in declarations) {
-            val parts = decl.split(":", limit = 2)
-            if (parts.size != 2) continue
-            val prop = parts[0].trim().lowercase()
-            val value = parts[1].trim()
-            when (prop) {
-                "font-weight" -> if (value.contains("bold") || (value.toIntOrNull() ?: 0) >= 600) {
-                    result = result.copy(bold = true)
-                }
-                "font-style" -> if (value.contains("italic")) {
-                    result = result.copy(italic = true)
-                }
-                "text-decoration" -> {
-                    if (value.contains("underline")) result = result.copy(underline = true)
-                    if (value.contains("line-through")) result = result.copy(strike = true)
-                }
-                "color" -> {
-                    val hex = cleanHex(value)
-                    if (hex != null) result = result.copy(colorHex = hex)
-                }
-                "font-family" -> {
-                    result = result.copy(fontFamily = value.replace("'", "").replace("\"", "").split(",").first().trim())
-                }
-                "font-size" -> {
-                    val pt = value.replace("pt", "").replace("px", "").trim().toFloatOrNull()?.toInt()
-                    if (pt != null && pt > 0) result = result.copy(fontSizePt = pt)
-                }
-            }
-        }
-        return result
-    }
-
-    private fun cleanHex(raw: String): String? {
-        val trimmed = raw.trim()
-        if (trimmed.startsWith("#") && (trimmed.length == 7 || trimmed.length == 4)) {
-            return trimmed.removePrefix("#").uppercase()
-        }
-        return null
-    }
-
-    private fun applyRunStyle(run: XWPFRun, style: InlineStyle) {
-        run.isBold = style.bold
-        run.isItalic = style.italic
-        if (style.underline) run.underline = UnderlinePatterns.SINGLE
-        run.isStrikeThrough = style.strike
-        style.colorHex?.let { run.color = it }
-        style.fontFamily?.let { run.fontFamily = it }
-        style.fontSizePt?.let { run.fontSize = it }
-    }
-
-    private fun insertBase64Image(p: XWPFParagraph, src: String) {
-        if (!src.startsWith("data:image/")) return
+    private fun addBase64Picture(p: XWPFParagraph, src: String) {
         try {
-            val base64Part = src.substringAfter("base64,", "")
-            if (base64Part.isEmpty()) return
-            val bytes = Base64.decode(base64Part, Base64.DEFAULT)
+            val base64Data = src.substringAfter("base64,")
+            val bytes = Base64.decode(base64Data, Base64.DEFAULT)
             val picType = when {
+                src.contains("image/jpeg") || src.contains("image/jpg") -> XWPFDocument.PICTURE_TYPE_JPEG
                 src.contains("image/png") -> XWPFDocument.PICTURE_TYPE_PNG
                 src.contains("image/gif") -> XWPFDocument.PICTURE_TYPE_GIF
                 else -> XWPFDocument.PICTURE_TYPE_JPEG
@@ -450,17 +429,10 @@ object DocxConverter {
             when (c) {
                 '{' -> {
                     inGroup++
-                    if (i + 1 < len && raw[i + 1] == '\\') {
-                        val wordEnd = (i + 2 until len).firstOrNull { !raw[it].isLetter() } ?: len
-                        val control = raw.substring(i + 1, wordEnd)
-                        if (control.startsWith("*") || control == "fonttbl" || control == "colortbl" || control == "stylesheet" || control == "info") {
-                            if (skipGroupDepth == -1) skipGroupDepth = inGroup
-                        }
-                    }
                     i++
                 }
                 '}' -> {
-                    if (skipGroupDepth == inGroup) {
+                    if (inGroup == skipGroupDepth) {
                         skipGroupDepth = -1
                     }
                     inGroup--
@@ -470,8 +442,13 @@ object DocxConverter {
                     i++
                     if (i >= len) break
                     val nextChar = raw[i]
-                    if (nextChar == '\\' || nextChar == '{' || nextChar == '}') {
-                        if (skipGroupDepth == -1) currentParagraph.append(nextChar)
+                    if (nextChar == '*' || nextChar == '{' || nextChar == '}' || nextChar == '\\') {
+                        if (nextChar == '*' && skipGroupDepth == -1) {
+                            skipGroupDepth = inGroup
+                        }
+                        if (skipGroupDepth == -1 && (nextChar == '{' || nextChar == '}' || nextChar == '\\')) {
+                            currentParagraph.append(nextChar)
+                        }
                         i++
                     } else if (nextChar == '\'') {
                         i++
@@ -594,7 +571,7 @@ object DocxConverter {
             noteCount = 0,
             svgConvertedCount = 0,
             drawingMlConvertedCount = 0,
-            imageFallbackCount = imageCount,
+            imageFallbackCount = 0,
             unsupportedCount = 0,
             unsupportedReasons = emptyList()
         )
@@ -603,35 +580,52 @@ object DocxConverter {
 
     private fun hwpfToPayload(inputStream: InputStream): DocumentPayload {
         val bytes = inputStream.readBytes()
-        val document = org.apache.poi.hwpf.HWPFDocument(ByteArrayInputStream(bytes))
-        val extractor = org.apache.poi.hwpf.extractor.WordExtractor(document)
+        val document = HWPFDocument(ByteArrayInputStream(bytes))
         val sb = StringBuilder()
         var paragraphCount = 0
         var tableCount = 0
         var imageCount = 0
+        val unsupportedReasons = mutableListOf<String>()
+        var unsupportedCount = 0
 
-        val embeddedImagesHtml = StringBuilder()
-        try {
-            val picturesTable = document.picturesTable
-            if (picturesTable != null) {
-                val pics = picturesTable.allPictures
-                for (pic in pics) {
-                    val picBytes = pic.content
-                    if (picBytes != null && picBytes.isNotEmpty()) {
-                        val b64 = Base64.encodeToString(picBytes, Base64.NO_WRAP)
-                        val ext = pic.suggestFileExtension() ?: "png"
-                        val mime = if (ext.equals("jpg", ignoreCase = true)) "image/jpeg" else "image/${ext.lowercase()}"
-                        embeddedImagesHtml.append("<div style=\"text-align: center; margin: 8px 0;\"><img src=\"data:$mime;base64,$b64\" style=\"max-width: 100%; height: auto; border-radius: 4px;\" alt=\"صورة مدمجة من مستند DOC\" /></div>")
-                        imageCount++
-                    }
-                }
-            }
-        } catch (_: Exception) {}
+        val picturesTable = runCatching { document.picturesTable }.getOrNull()
+        val embeddedImagesMap = mutableSetOf<ByteArray>()
 
         val range = document.range
         val numParas = range.numParagraphs()
-        for (i in 0 until numParas) {
+        var i = 0
+
+        while (i < numParas) {
             val p = range.getParagraph(i)
+            if (p.isInTable) {
+                val table = runCatching { range.getTable(p) }.getOrNull()
+                if (table != null) {
+                    tableCount++
+                    sb.append("<table border=\"1\" style=\"width:100%; border-collapse:collapse; margin:10px 0;\"><tbody>")
+                    for (r in 0 until table.numRows()) {
+                        val row = table.getRow(r)
+                        sb.append("<tr>")
+                        for (c in 0 until row.numCells()) {
+                            val cell = row.getCell(c)
+                            sb.append("<td style=\"border:1px solid #CBD5E1; padding:6px;\">")
+                            for (cp in 0 until cell.numParagraphs()) {
+                                val cellP = cell.getParagraph(cp)
+                                renderHwpfParagraphContent(cellP, picturesTable, embeddedImagesMap, sb) { imageCount++ }
+                            }
+                            sb.append("</td>")
+                        }
+                        sb.append("</tr>")
+                    }
+                    sb.append("</tbody></table>")
+
+                    val tableEnd = table.endOffset
+                    while (i < numParas && range.getParagraph(i).endOffset <= tableEnd) {
+                        i++
+                    }
+                    continue
+                }
+            }
+
             paragraphCount++
             val align = when (p.justification) {
                 1 -> "center"
@@ -640,34 +634,55 @@ object DocxConverter {
                 else -> "left"
             }
             sb.append("<p style=\"text-align: $align;\">")
-            val numRuns = p.numCharacterRuns()
-            var pHasText = false
-            for (j in 0 until numRuns) {
-                val run = p.getCharacterRun(j)
-                val text = run.text()?.replace("&", "&amp;")?.replace("<", "&lt;")?.replace(">", "&gt;") ?: ""
-                if (text.isNotEmpty()) {
-                    pHasText = true
-                    var formatted = text
-                    if (run.isBold) formatted = "<b>$formatted</b>"
-                    if (run.isItalic) formatted = "<i>$formatted</i>"
-                    if (run.isVanished) continue
-                    sb.append(formatted)
-                }
-            }
-            if (!pHasText) {
-                sb.append("<br>")
-            }
+            renderHwpfParagraphContent(p, picturesTable, embeddedImagesMap, sb) { imageCount++ }
             sb.append("</p>")
+            i++
         }
 
-        if (embeddedImagesHtml.isNotEmpty()) {
-            sb.append(embeddedImagesHtml)
+        // Append any remaining pictures not referenced in character runs (e.g. floating images)
+        picturesTable?.allPictures?.forEach { pic ->
+            val picBytes = pic.content
+            if (picBytes != null && picBytes.isNotEmpty() && !embeddedImagesMap.contains(picBytes)) {
+                val b64 = Base64.encodeToString(picBytes, Base64.NO_WRAP)
+                val ext = pic.suggestFileExtension() ?: "png"
+                val mime = if (ext.equals("jpg", ignoreCase = true)) "image/jpeg" else "image/${ext.lowercase()}"
+                sb.append("<div style=\"text-align: center; margin: 8px 0;\"><img src=\"data:$mime;base64,$b64\" style=\"max-width: 100%; height: auto; border-radius: 4px;\" alt=\"صورة عائمة من مستند DOC\" /></div>")
+                imageCount++
+            }
         }
 
-        val headerText = extractor.headerText?.trim() ?: ""
-        val footerText = extractor.footerText?.trim() ?: ""
-        val headerHtml = if (headerText.isNotEmpty()) "<p>${headerText.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</p>" else ""
-        val footerHtml = if (footerText.isNotEmpty()) "<p>${footerText.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</p>" else ""
+        // Headers and footers via HeaderStories
+        var headerHtml = ""
+        var footerHtml = ""
+        runCatching {
+            val stories = HeaderStories(document)
+            val hText = (stories.firstHeader ?: stories.oddHeader ?: stories.evenHeader)?.trim() ?: ""
+            val fText = (stories.firstFooter ?: stories.oddFooter ?: stories.evenFooter)?.trim() ?: ""
+            if (hText.isNotBlank()) headerHtml = "<p>${escapeHtml(hText)}</p>"
+            if (fText.isNotBlank()) footerHtml = "<p>${escapeHtml(fText)}</p>"
+        }
+
+        // Footnotes
+        val notes = mutableListOf<DocumentNote>()
+        runCatching {
+            val fnRange = document.footnoteRange
+            if (fnRange != null && fnRange.text().isNotBlank()) {
+                val fnText = fnRange.text().trim()
+                notes.add(DocumentNote(id = "fn_1", type = "FOOTNOTE", text = fnText, number = 1))
+            }
+        }
+
+        // Page Config from section
+        val pageConfig = runCatching {
+            val section = range.getSection(0)
+            val isLandscape = section.pageWidth > section.pageHeight
+            val marginMm = (section.marginLeft / 56.692913f)
+            PageConfig(
+                orientation = if (isLandscape) PageOrientation.LANDSCAPE else PageOrientation.PORTRAIT,
+                marginPreset = MarginPreset.CUSTOM,
+                customMarginMm = marginMm
+            )
+        }.getOrDefault(PageConfig())
 
         val report = DocumentImportReport(
             paragraphCount = paragraphCount,
@@ -677,12 +692,12 @@ object DocxConverter {
             chartCount = 0,
             fieldCount = 0,
             commentCount = 0,
-            noteCount = extractor.footnoteText?.count { it.isNotBlank() } ?: 0,
+            noteCount = notes.size,
             svgConvertedCount = 0,
             drawingMlConvertedCount = 0,
-            imageFallbackCount = imageCount,
-            unsupportedCount = 0,
-            unsupportedReasons = emptyList()
+            imageFallbackCount = 0,
+            unsupportedCount = unsupportedCount,
+            unsupportedReasons = unsupportedReasons
         )
         document.close()
         val bodyHtml = HtmlSanitizer.sanitizeHtml(sb.toString().ifBlank { "<p><br></p>" })
@@ -690,8 +705,93 @@ object DocxConverter {
             bodyHtml = bodyHtml,
             headerHtml = headerHtml,
             footerHtml = footerHtml,
+            pageConfig = pageConfig,
+            notes = notes,
             importReport = report
         )
+    }
+
+    private fun renderHwpfParagraphContent(
+        p: Paragraph,
+        picturesTable: org.apache.poi.hwpf.model.PicturesTable?,
+        embeddedImagesMap: MutableSet<ByteArray>,
+        sb: StringBuilder,
+        onImage: () -> Unit
+    ) {
+        val numRuns = p.numCharacterRuns()
+        var pHasText = false
+        for (j in 0 until numRuns) {
+            val run = p.getCharacterRun(j)
+            if (picturesTable != null && (picturesTable.hasPicture(run) || picturesTable.hasEscherPicture(run))) {
+                val pic = runCatching { picturesTable.extractPicture(run, true) }.getOrNull()
+                if (pic != null && pic.content != null && pic.content.isNotEmpty()) {
+                    val picBytes = pic.content
+                    embeddedImagesMap.add(picBytes)
+                    val b64 = Base64.encodeToString(picBytes, Base64.NO_WRAP)
+                    val ext = pic.suggestFileExtension() ?: "png"
+                    val mime = if (ext.equals("jpg", ignoreCase = true)) "image/jpeg" else "image/${ext.lowercase()}"
+                    sb.append("<div style=\"text-align: center; margin: 8px 0;\"><img src=\"data:$mime;base64,$b64\" style=\"max-width: 100%; height: auto; border-radius: 4px;\" alt=\"صورة مدمجة\" /></div>")
+                    onImage()
+                    pHasText = true
+                }
+            }
+
+            val rawText = run.text() ?: ""
+            val cleanText = rawText.replace("\u0001", "").replace("\u0008", "")
+            val text = escapeHtml(cleanText)
+            if (text.isNotEmpty()) {
+                pHasText = true
+                var formatted = text
+                val styles = mutableListOf<String>()
+                val font = run.fontName
+                if (!font.isNullOrBlank()) styles.add("font-family: '$font'")
+                val fontSizePt = run.fontSize / 2
+                if (fontSizePt > 0) styles.add("font-size: ${fontSizePt}pt")
+                val colorIdx = run.color
+                val colorHex = if (colorIdx in 1..16) getColorHexForIndex(colorIdx) else null
+                colorHex?.let { styles.add("color: $it") }
+
+                if (styles.isNotEmpty()) {
+                    formatted = "<span style=\"${styles.joinToString("; ")}\">$formatted</span>"
+                }
+                if (run.isBold) formatted = "<b>$formatted</b>"
+                if (run.isItalic) formatted = "<i>$formatted</i>"
+                if (run.underlineCode != 0) formatted = "<u>$formatted</u>"
+                if (run.isStrikeThrough) formatted = "<s>$formatted</s>"
+                sb.append(formatted)
+            }
+        }
+        if (!pHasText) {
+            sb.append("<br>")
+        }
+    }
+
+    private fun getColorHexForIndex(index: Int): String? {
+        return when (index) {
+            1 -> "#000000" // Black
+            2 -> "#0000FF" // Blue
+            3 -> "#00FFFF" // Cyan
+            4 -> "#00FF00" // Green
+            5 -> "#FF00FF" // Magenta
+            6 -> "#FF0000" // Red
+            7 -> "#FFFF00" // Yellow
+            8 -> "#FFFFFF" // White
+            9 -> "#000080" // Dark Blue
+            10 -> "#008080" // Dark Cyan
+            11 -> "#008000" // Dark Green
+            12 -> "#800080" // Dark Magenta
+            13 -> "#800000" // Dark Red
+            14 -> "#808000" // Dark Yellow
+            15 -> "#808080" // Dark Gray
+            16 -> "#C0C0C0" // Light Gray
+            else -> null
+        }
+    }
+
+    private fun escapeHtml(s: String): String {
+        return s.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
     }
 
     fun docxToPayload(inputStream: InputStream): DocumentPayload {
@@ -713,13 +813,15 @@ object DocxConverter {
         var smartArtCount = extractedSmartArts.size
         var chartCount = extractedCharts.size
         var fieldCount = 0
+        val unsupportedReasons = mutableListOf<String>()
+        var unsupportedCount = 0
 
         val headerHtml = document.headerList.firstOrNull()?.text?.trim()?.let {
-            if (it.isNotEmpty()) "<p>$it</p>" else ""
+            if (it.isNotEmpty()) "<p>${escapeHtml(it)}</p>" else ""
         } ?: ""
 
         val footerHtml = document.footerList.firstOrNull()?.text?.trim()?.let {
-            if (it.isNotEmpty()) "<p>$it</p>" else ""
+            if (it.isNotEmpty()) "<p>${escapeHtml(it)}</p>" else ""
         } ?: ""
 
         var smartArtIndex = 0
@@ -743,28 +845,18 @@ object DocxConverter {
                             val sa = extractedSmartArts[smartArtIndex++]
                             sb.append(SmartArtChartUtils.smartArtToHtmlBlock(sa))
                         } else {
-                            val defaultSa = SmartArtChartUtils.createDefaultSmartArt(
-                                id = "sa_${System.currentTimeMillis()}_$smartArtIndex",
-                                title = "SmartArt (مستورد)"
-                            )
-                            extractedSmartArts.add(defaultSa)
-                            smartArtIndex++
-                            smartArtCount++
-                            sb.append(SmartArtChartUtils.smartArtToHtmlBlock(defaultSa))
+                            unsupportedCount++
+                            unsupportedReasons.add("مخطط SmartArt غير مدعوم أو تالف في المستند")
+                            sb.append("<div class=\"unsupported-block\" style=\"border:1px dashed #CBD5E1; padding:8px; margin:8px 0; color:#64748B;\">[مخطط SmartArt غير مدعوم]</div>")
                         }
                     } else if (ctpXml.contains("c:chart") || ctpXml.contains("chart")) {
                         if (chartIndex < extractedCharts.size) {
                             val chart = extractedCharts[chartIndex++]
                             sb.append(SmartArtChartUtils.chartToHtmlBlock(chart))
                         } else {
-                            val defaultChart = SmartArtChartUtils.createDefaultChart(
-                                id = "chart_${System.currentTimeMillis()}_$chartIndex",
-                                title = "مخطط بياني (مستورد)"
-                            )
-                            extractedCharts.add(defaultChart)
-                            chartIndex++
-                            chartCount++
-                            sb.append(SmartArtChartUtils.chartToHtmlBlock(defaultChart))
+                            unsupportedCount++
+                            unsupportedReasons.add("مخطط بياني غير مدعوم أو تالف في المستند")
+                            sb.append("<div class=\"unsupported-block\" style=\"border:1px dashed #CBD5E1; padding:8px; margin:8px 0; color:#64748B;\">[مخطط بياني غير مدعوم]</div>")
                         }
                     } else {
                         sb.append("<p style=\"text-align: $align;\">")
@@ -780,7 +872,6 @@ object DocxConverter {
                         }
                     } else {
                         for (run in p.runs) {
-                            // Extract embedded pictures
                             for (pic in run.embeddedPictures) {
                                 val picData = pic.pictureData
                                 val dataBytes = picData?.data
@@ -794,7 +885,7 @@ object DocxConverter {
                             }
 
                             var text = run.text() ?: ""
-                            text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                            text = escapeHtml(text)
                             if (text.isEmpty()) continue
                             val styles = mutableListOf<String>()
                             run.color?.let { styles.add("color: #$it") }
@@ -820,9 +911,9 @@ object DocxConverter {
                 }
                 BodyElementType.TABLE -> {
                     tableCount++
-                    val table = element as XWPFTable
-                    sb.append("<table border=\"1\" style=\"width: 100%; border-collapse: collapse; margin: 8px 0;\"><tbody>")
-                    for (row in table.rows) {
+                    val tbl = element as XWPFTable
+                    sb.append("<table border=\"1\" style=\"width: 100%; border-collapse: collapse; margin: 10px 0;\"><tbody>")
+                    for (row in tbl.rows) {
                         sb.append("<tr>")
                         for (cell in row.tableCells) {
                             val cellSb = StringBuilder()
@@ -839,7 +930,7 @@ object DocxConverter {
                                             imageCount++
                                         }
                                     }
-                                    val t = (cr.text() ?: "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                                    val t = escapeHtml(cr.text() ?: "")
                                     if (t.isNotEmpty()) {
                                         var wt = t
                                         if (cr.isBold) wt = "<b>$wt</b>"
@@ -849,7 +940,7 @@ object DocxConverter {
                                 }
                             }
                             val cellContent = cellSb.toString().ifEmpty {
-                                cell.text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").ifEmpty { "<br>" }
+                                escapeHtml(cell.text).ifEmpty { "<br>" }
                             }
                             sb.append("<td style=\"padding: 6px; border: 1px solid #CBD5E1;\">$cellContent</td>")
                         }
@@ -861,7 +952,7 @@ object DocxConverter {
             }
         }
 
-        // If there were diagrams parsed from OOXML zip structure that weren't matched inline, append them
+        // If there were diagrams or charts parsed from OOXML zip structure that weren't matched inline, append them
         while (smartArtIndex < extractedSmartArts.size) {
             val sa = extractedSmartArts[smartArtIndex++]
             sb.append(SmartArtChartUtils.smartArtToHtmlBlock(sa))
@@ -871,7 +962,7 @@ object DocxConverter {
             sb.append(SmartArtChartUtils.chartToHtmlBlock(chart))
         }
 
-        // Extract footnotes/endnotes
+        // Footnotes
         val notes = mutableListOf<DocumentNote>()
         runCatching {
             document.footnotes?.forEachIndexed { idx, fn ->
@@ -890,6 +981,11 @@ object DocxConverter {
         }
 
         val commentsCount = runCatching { document.comments?.size ?: 0 }.getOrDefault(0)
+
+        // Strict calculation of import metrics
+        val drawingMlCount = smartArtCount + chartCount
+        val svgCount = chartCount // chartToHtmlBlock produces valid SVG!
+
         val report = DocumentImportReport(
             paragraphCount = paragraphCount,
             tableCount = tableCount,
@@ -899,11 +995,11 @@ object DocxConverter {
             fieldCount = fieldCount,
             commentCount = commentsCount,
             noteCount = notes.size,
-            svgConvertedCount = smartArtCount + chartCount,
-            drawingMlConvertedCount = smartArtCount + chartCount + imageCount,
-            imageFallbackCount = imageCount,
-            unsupportedCount = 0,
-            unsupportedReasons = emptyList()
+            svgConvertedCount = svgCount,
+            drawingMlConvertedCount = drawingMlCount,
+            imageFallbackCount = 0,
+            unsupportedCount = unsupportedCount,
+            unsupportedReasons = unsupportedReasons
         )
 
         document.close()
@@ -923,7 +1019,7 @@ object DocxConverter {
         val text = inputStream.bufferedReader(Charsets.UTF_8).readText()
         val sb = StringBuilder()
         text.lines().forEach { line ->
-            val escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            val escaped = escapeHtml(line)
             sb.append("<p>${escaped.ifEmpty { "<br>" }}</p>")
         }
         return sb.toString().ifBlank { "<p><br></p>" }

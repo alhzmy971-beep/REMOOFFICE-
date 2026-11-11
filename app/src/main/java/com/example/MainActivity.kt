@@ -111,13 +111,26 @@ import com.example.ui.components.TopActionBar
 import com.example.ui.components.TrackedChangesPanelDialog
 import com.example.ui.screens.HomeHubScreen
 import com.example.ui.screens.SplashScreen
-import com.example.ui.theme.DocuCraftTheme
+import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.EditorViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+private val SUPPORTED_DOCUMENT_MIMES = arrayOf(
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+    "application/vnd.ms-word.document.macroEnabled.12",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+    "application/vnd.ms-word.template.macroEnabled.12",
+    "application/pdf",
+    "application/rtf",
+    "text/rtf",
+    "text/plain",
+    "text/html"
+)
 
 private enum class AppScreen {
     SPLASH, HOME, EDITOR
@@ -128,7 +141,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            DocuCraftTheme {
+            MyApplicationTheme {
                 RemoOfficeApp()
             }
         }
@@ -465,13 +478,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     showTemplatesDialog = true
                 },
                 onImportDocument = {
-                    importDocumentLauncher.launch(
-                        arrayOf(
-                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            "application/msword",
-                            "application/pdf"
-                        )
-                    )
+                    importDocumentLauncher.launch(SUPPORTED_DOCUMENT_MIMES)
                 },
                 onConvertPdfOnline = {
                     convertPdfOnlineLauncher.launch(arrayOf("application/pdf"))
@@ -621,13 +628,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             onUndo = { EditorCommands.undo(webViewRef) },
                             onRedo = { EditorCommands.redo(webViewRef) },
                             onOpenDocx = {
-                                importDocumentLauncher.launch(
-                                    arrayOf(
-                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                        "application/msword",
-                                        "application/pdf"
-                                    )
-                                )
+                                importDocumentLauncher.launch(SUPPORTED_DOCUMENT_MIMES)
                             },
                             onSaveDocx = {
                                 val fileName = "${documentTitle.ifBlank { "Document" }}.docx"
@@ -673,10 +674,17 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 EditorJsBridge(
                                     onStateUpdated = { viewModel.updateSelectionState(it) },
                                     onContentUpdated = { body, header, footer ->
-                                        val updatedPayload = viewModel.documentPayload.value.copy(
+                                        val current = viewModel.documentPayload.value
+                                        val extractedSmartArts = com.example.bridge.SmartArtChartUtils.extractSmartArtsFromHtml(body)
+                                        val extractedCharts = com.example.bridge.SmartArtChartUtils.extractChartsFromHtml(body)
+                                        val mergedSmartArts = if (extractedSmartArts.isNotEmpty()) extractedSmartArts else current.smartArts
+                                        val mergedCharts = if (extractedCharts.isNotEmpty()) extractedCharts else current.charts
+                                        val updatedPayload = current.copy(
                                             bodyHtml = body,
                                             headerHtml = header,
-                                            footerHtml = footer
+                                            footerHtml = footer,
+                                            smartArts = mergedSmartArts,
+                                            charts = mergedCharts
                                         )
                                         viewModel.setDocumentPayload(updatedPayload)
                                         persistPayload(updatedPayload)
@@ -830,13 +838,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 webViewRef?.let { PdfExporter.exportToPdf(context, it, documentTitle) }
                             },
                             onOpenDocx = {
-                                importDocumentLauncher.launch(
-                                    arrayOf(
-                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                        "application/pdf",
-                                        "text/plain"
-                                    )
-                                )
+                                importDocumentLauncher.launch(SUPPORTED_DOCUMENT_MIMES)
                             },
                             onRenameDoc = { showRenameDialog = true },
                             onOpenBookmarkDialog = { showBookmarkDialog = true },
@@ -851,6 +853,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             onOpenSmartArtDialog = {
                                 if (selectionState.inSmartArt && selectionState.selectedSmartArtId.isNotBlank()) {
                                     editingSmartArtData = documentPayload.smartArts.find { it.id == selectionState.selectedSmartArtId }
+                                        ?: com.example.bridge.SmartArtChartUtils.extractSmartArtsFromHtml(documentPayload.bodyHtml).find { it.id == selectionState.selectedSmartArtId }
                                 } else {
                                     editingSmartArtData = null
                                 }
@@ -859,6 +862,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             onOpenChartDialog = {
                                 if (selectionState.inChart && selectionState.selectedChartId.isNotBlank()) {
                                     editingChartData = documentPayload.charts.find { it.id == selectionState.selectedChartId }
+                                        ?: com.example.bridge.SmartArtChartUtils.extractChartsFromHtml(documentPayload.bodyHtml).find { it.id == selectionState.selectedChartId }
                                 } else {
                                     editingChartData = null
                                 }
@@ -1603,6 +1607,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                 val updatedPayload = documentPayload.copy(smartArts = updatedSmartArts)
                 viewModel.setDocumentPayload(updatedPayload)
                 persistPayload(updatedPayload)
+                showSmartArtDialog = false
                 viewModel.showMessage(if (editingSmartArtData != null) "تم تحديث SmartArt" else "تم إدراج SmartArt بنجاح")
             },
             onDelete = { smartArtId ->
@@ -1611,6 +1616,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                 val updatedPayload = documentPayload.copy(smartArts = updatedSmartArts)
                 viewModel.setDocumentPayload(updatedPayload)
                 persistPayload(updatedPayload)
+                showSmartArtDialog = false
                 viewModel.showMessage("تم حذف SmartArt")
             }
         )
@@ -1632,6 +1638,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                 val updatedPayload = documentPayload.copy(charts = updatedCharts)
                 viewModel.setDocumentPayload(updatedPayload)
                 persistPayload(updatedPayload)
+                showChartDialog = false
                 viewModel.showMessage(if (editingChartData != null) "تم تحديث المخطط البياني" else "تم إدراج المخطط البياني بنجاح")
             },
             onDelete = { chartId ->
@@ -1640,6 +1647,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                 val updatedPayload = documentPayload.copy(charts = updatedCharts)
                 viewModel.setDocumentPayload(updatedPayload)
                 persistPayload(updatedPayload)
+                showChartDialog = false
                 viewModel.showMessage("تم حذف المخطط البياني")
             }
         )

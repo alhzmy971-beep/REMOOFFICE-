@@ -158,7 +158,21 @@ data class SmartArtNode(
     val parentId: String? = null,
     val colorHex: String? = null,
     val fontName: String? = null,
-    val fontSizePt: Int? = null
+    val fontSizePt: Int? = null,
+    val modelId: String? = null,
+    val connectionType: String? = null,
+    val presId: String? = null,
+    val order: Int = 0
+)
+
+data class SmartArtConnection(
+    val modelId: String = "",
+    val type: String = "parOf",
+    val sourceId: String = "",
+    val destId: String = "",
+    val presId: String? = null,
+    val sourceOrder: Int = 0,
+    val destOrder: Int = 0
 )
 
 data class SmartArtData(
@@ -171,7 +185,13 @@ data class SmartArtData(
     val direction: String = "rtl", // "rtl" or "ltr"
     val widthPx: Int = 500,
     val heightPx: Int = 260,
-    val stylePreset: String = "flat"
+    val stylePreset: String = "flat",
+    val originalXml: String? = null,
+    val originalPartName: String? = null,
+    val layoutPartName: String? = null,
+    val stylePartName: String? = null,
+    val colorPartName: String? = null,
+    val connections: List<SmartArtConnection> = emptyList()
 )
 
 data class ChartSeries(
@@ -192,7 +212,15 @@ data class ChartData(
     val widthPx: Int = 460,
     val heightPx: Int = 280,
     val xAxisLabel: String = "",
-    val yAxisLabel: String = ""
+    val yAxisLabel: String = "",
+    val stackedType: String? = null, // "standard", "stacked", "percentStacked"
+    val grouping: String? = null,
+    val has3D: Boolean = false,
+    val secondaryAxis: Boolean = false,
+    val legendPosition: String = "b", // "r", "l", "t", "b"
+    val numberFormat: String? = null,
+    val originalXml: String? = null,
+    val originalPartName: String? = null
 ) {
     val chartType: String get() = type
 }
