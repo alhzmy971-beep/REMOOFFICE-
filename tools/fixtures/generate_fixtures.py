@@ -9,6 +9,7 @@ real parser paths instead of a self-consistent round trip.
 Outputs (app/src/test/resources/fixtures/):
   smartart_real.docx        - one hierarchy SmartArt with data/layout/style/colors parts
   scatter_real.docx         - one scatter chart with explicit c:xVal / c:yVal per series
+  column_real.docx          - one classic column chart (c:cat / c:val, non-scatter path)
   multi_smartart_chart.docx - two SmartArts + two charts (collision test)
   template_markers.docx     - empty document with export markers for the enricher
 """
@@ -105,6 +106,48 @@ def scatter_chart(title, series, x_title="X values", y_title="Y values"):
             '<c:crossAx val="1001"/></c:valAx>'
             '</c:plotArea><c:legend><c:legendPos val="b"/></c:legend></c:chart></c:chartSpace>'
             % (NS, title, "".join(sers), x_title, y_title))
+
+
+def column_chart(title, categories, series, x_title="Categories", y_title="Values"):
+    """series: list of (name, color, values). Emits a classic c:barChart with
+    c:cat (strLit) and c:val (numLit), i.e. the non-scatter path."""
+    cats = "".join('<c:pt idx="%d"><c:v>%s</c:v></c:pt>' % (i, c) for i, c in enumerate(categories))
+    sers = []
+    for i, (name, color, vals) in enumerate(series):
+        vpts = "".join('<c:pt idx="%d"><c:v>%s</c:v></c:pt>' % (j, v) for j, v in enumerate(vals))
+        sers.append(
+            '<c:ser><c:idx val="%d"/><c:order val="%d"/>'
+            '<c:tx><c:strRef><c:f>Sheet1!$B$1</c:f><c:strCache><c:ptCount val="1"/>'
+            '<c:pt idx="0"><c:v>%s</c:v></c:pt></c:strCache></c:strRef></c:tx>'
+            '<c:spPr><a:solidFill><a:srgbClr val="%s"/></a:solidFill></c:spPr>'
+            '<c:cat><c:strLit><c:ptCount val="%d"/>%s</c:strLit></c:cat>'
+            '<c:val><c:numLit><c:ptCount val="%d"/>%s</c:numLit></c:val>'
+            '</c:ser>'
+            % (i, i, name, color, len(categories), cats, len(vals), vpts))
+    return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<c:chartSpace %s><c:chart>'
+            '<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>%s</a:t></a:r></a:p></c:rich></c:tx></c:title>'
+            '<c:plotArea><c:barChart><c:barDir val="col"/><c:grouping val="clustered"/>%s'
+            '<c:axId val="2001"/><c:axId val="2002"/></c:barChart>'
+            '<c:catAx><c:axId val="2001"/><c:scaling><c:orientation val="minMax"/></c:scaling>'
+            '<c:delete val="0"/><c:axPos val="b"/><c:crossAx val="2002"/>'
+            '<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>%s</a:t></a:r></a:p></c:rich></c:tx></c:title></c:catAx>'
+            '<c:valAx><c:axId val="2002"/><c:scaling><c:orientation val="minMax"/></c:scaling>'
+            '<c:delete val="0"/><c:axPos val="l"/><c:crossAx val="2001"/>'
+            '<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>%s</a:t></a:r></a:p></c:rich></c:tx></c:title></c:valAx>'
+            '</c:plotArea><c:legend><c:legendPos val="b"/></c:legend></c:chart></c:chartSpace>'
+            % (NS, title, "".join(sers), x_title, y_title))
+
+
+def build_column_docx(path):
+    rels = [rel("rId40", "chart", "charts/chart1.xml")]
+    parts = {"word/charts/chart1.xml": column_chart(
+        "Real Column",
+        ["Alpha", "Beta", "Gamma"],
+        [("Planned", "1A56DB", [10, 20, 30]),
+         ("Actual", "10B981", [12, 18, 33])],
+        x_title="Categories", y_title="Values")}
+    write_docx(path, document(graphic_chart("rId40", 1)), rels, parts, [CHART_CT % "chart1.xml"])
 
 
 def graphic_smartart(rids):
@@ -228,6 +271,7 @@ def main():
     build_smartart_docx(os.path.join(OUT, "smartart_real.docx"))
     build_scatter_docx(os.path.join(OUT, "scatter_real.docx"))
     build_multi_docx(os.path.join(OUT, "multi_smartart_chart.docx"))
+    build_column_docx(os.path.join(OUT, "column_real.docx"))
     build_template(os.path.join(OUT, "template_markers.docx"))
     for f in sorted(os.listdir(OUT)):
         print(f, os.path.getsize(os.path.join(OUT, f)))

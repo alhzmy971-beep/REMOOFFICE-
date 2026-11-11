@@ -11,6 +11,7 @@ import com.example.model.SmartArtNode
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -388,5 +389,52 @@ class RealOfficeFixtureUnitTest {
         assertEquals(listOf(1.0, 2.0), extractedCharts[0].series[0].xValues)
         assertEquals(listOf(3.0, 4.0), extractedCharts[0].series[1].xValues)
         assertEquals(listOf(10.0, 20.0), extractedCharts[0].series[0].values)
+    }
+
+    @Test
+    fun columnChartFixtureParsesCategoriesValuesAndAxes() {
+        val (smartArts, charts) = OoxmlDiagramChartParser.parseDocxDiagramsAndCharts(fixture("column_real.docx"))
+        assertTrue(smartArts.isEmpty())
+        assertEquals(1, charts.size)
+        val chart = charts[0]
+        assertTrue("unexpected type: ${chart.type}", chart.type in setOf("column", "bar"))
+        assertEquals("Real Column", chart.title)
+        assertEquals(listOf("Alpha", "Beta", "Gamma"), chart.categories)
+        assertEquals(2, chart.series.size)
+        assertEquals(listOf("Planned", "Actual"), chart.series.map { it.name })
+        assertEquals(listOf(10.0, 20.0, 30.0), chart.series[0].values)
+        assertEquals(listOf(12.0, 18.0, 33.0), chart.series[1].values)
+        // A non-scatter chart must not pretend to carry explicit X values.
+        assertTrue(chart.series.all { it.xValues.isEmpty() })
+        assertEquals("Categories", chart.xAxisLabel)
+        assertEquals("Values", chart.yAxisLabel)
+    }
+
+    @Test
+    fun columnChartEditExportReimportKeepsCategoriesAndValues() {
+        val (_, charts) = OoxmlDiagramChartParser.parseDocxDiagramsAndCharts(fixture("column_real.docx"))
+        val edited = charts[0].copy(
+            title = "Edited Column",
+            categories = listOf("A", "B", "C"),
+            series = charts[0].series.mapIndexed { i, s ->
+                s.copy(name = "S$i", values = s.values.map { it + 5.0 })
+            }
+        )
+        val out = ByteArrayOutputStream()
+        OoxmlPackageEnricher.enrichDocxPackage(fixture("template_markers.docx"), emptyList(), listOf(edited), out)
+
+        val entries = entriesOf(out.toByteArray())
+        val chartXml = entries.keys.filter { it.startsWith("word/charts/chart") }.sorted().first()
+        val xml = String(entries[chartXml]!!, Charsets.UTF_8)
+        assertTrue(xml.contains("<c:cat>"))
+        assertTrue(xml.contains("<c:val>"))
+        assertFalse(xml.contains("<c:xVal>"))
+
+        val (_, reimported) = OoxmlDiagramChartParser.parseDocxDiagramsAndCharts(out.toByteArray())
+        assertEquals(1, reimported.size)
+        assertEquals("Edited Column", reimported[0].title)
+        assertEquals(listOf("A", "B", "C"), reimported[0].categories)
+        assertEquals(listOf(15.0, 25.0, 35.0), reimported[0].series[0].values)
+        assertEquals(listOf(17.0, 23.0, 38.0), reimported[0].series[1].values)
     }
 }
