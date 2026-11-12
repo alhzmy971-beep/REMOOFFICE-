@@ -626,7 +626,16 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             },
                             onSharePdf = {
                                 webViewRef?.let { wv ->
-                                    PdfExporter.exportToPdf(context, wv, documentTitle)
+                                    PdfExporter.exportToPdfAndShare(context, wv, documentTitle) { error ->
+                                        viewModel.showMessage(error)
+                                    }
+                                }
+                            },
+                            onShareImage = {
+                                webViewRef?.let { wv ->
+                                    PdfExporter.exportToImageAndShare(context, wv, documentTitle) { error ->
+                                        viewModel.showMessage(error)
+                                    }
                                 }
                             }
                         )
@@ -815,7 +824,11 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             },
                             onSaveDocx = { saveDocxLauncher.launch("$documentTitle.docx") },
                             onSharePdf = {
-                                webViewRef?.let { PdfExporter.exportToPdf(context, it, documentTitle) }
+                                webViewRef?.let {
+                                    PdfExporter.exportToPdfAndShare(context, it, documentTitle) { error ->
+                                        viewModel.showMessage(error)
+                                    }
+                                }
                             },
                             onOpenDocx = {
                                 importDocumentLauncher.launch(

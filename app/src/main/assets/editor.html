@@ -11,42 +11,42 @@
     src: url('fonts/NotoSansArabic-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
+    font-display: swap;
   }
   @font-face {
     font-family: 'Noto Sans Arabic';
     src: url('fonts/NotoSansArabic-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
+    font-display: swap;
   }
   @font-face {
     font-family: 'REMOO Noto Sans';
     src: url('fonts/NotoSans-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
+    font-display: swap;
   }
   @font-face {
     font-family: 'Noto Sans';
     src: url('fonts/NotoSans-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
+    font-display: swap;
   }
   @font-face {
     font-family: 'REMOO Noto Serif';
     src: url('fonts/NotoSerif-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
+    font-display: swap;
   }
   @font-face {
     font-family: 'Noto Serif';
     src: url('fonts/NotoSerif-VF.ttf') format('truetype');
     font-style: normal;
     font-weight: 100 900;
-    font-display: block;
+    font-display: swap;
   }
 
   :root {
@@ -71,7 +71,18 @@
     padding: 0;
     background-color: #E8ECF2;
     font-family: 'REMOO Noto Sans Arabic', 'Noto Sans Arabic', 'REMOO Noto Sans', 'Noto Sans', 'Arial', 'Tahoma', sans-serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    direction: rtl;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  #editor, #pageHeader, #pageFooter {
+    font-family: 'REMOO Noto Sans Arabic', 'Noto Sans Arabic', 'REMOO Noto Sans', 'Noto Sans', 'Arial', 'Tahoma', sans-serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    direction: rtl;
+    unicode-bidi: plaintext;
   }
 
   .workspace {
@@ -324,7 +335,7 @@
 <div class="workspace">
   <div id="pageContainer" class="page-container">
     <div id="pageHeader" class="page-header" contenteditable="true"></div>
-    <div id="editor" class="page" contenteditable="true" spellcheck="true">
+    <div id="editor" class="page" dir="rtl" contenteditable="true" spellcheck="true">
       <p>مرحباً بك في <b>REMOOFFICE محرر</b> — محرر المستندات الاحترافي المتكامل.</p>
       <p>ابدأ الكتابة هنا أو استخدم شريط الأدوات بالأسفل لتنسيق النصوص، إدراج الجداول، الصور، وتخطيط الصفحة.</p>
     </div>
