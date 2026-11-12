@@ -4,14 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
-import android.os.Bundle
-import android.os.CancellationSignal
-import android.os.ParcelFileDescriptor
-import android.print.PageRange
 import android.print.PrintAttributes
-import android.print.PrintDocumentAdapter
-import android.print.PrintDocumentInfo
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.core.content.FileProvider
 import java.io.File
@@ -20,15 +19,24 @@ import java.io.FileOutputStream
 /**
  * Real file export for PDF and PNG/JPEG plus Android share intents.
  *
- * PDF generation drives WebView's PrintDocumentAdapter directly into a file
- * descriptor (no PrintManager dialog required). The produced file is a normal
- * PDF that can be shared with any app through a FileProvider content:// URI.
+ * PDF generation renders the WebView's full (scrollable) content into an
+ * A4 [PdfDocument] page by page. This avoids the package-private
+ * `PrintDocumentAdapter.*ResultCallback` constructors (which cannot be
+ * instantiated from application code) and guarantees that content below the
+ * viewport is actually included in the produced file.
+ *
+ * The produced file is a normal PDF that can be shared with any app through a
+ * FileProvider content:// URI.
  */
 object PdfExporter {
 
     private const val MIME_PDF = "application/pdf"
     private const val MIME_PNG = "image/png"
     private const val MIME_JPEG = "image/jpeg"
+
+    // A4 at 72 dpi (PDF points).
+    private const val PAGE_WIDTH_PT = 595
+    private const val PAGE_HEIGHT_PT = 842
 
     fun safeFileName(title: String, extension: String): String {
         val base = title.trim().ifBlank { "REMOOFFICE_Document" }
@@ -39,6 +47,46 @@ object PdfExporter {
 
     fun exportsDir(context: Context): File =
         File(context.cacheDir, "exports").apply { mkdirs() }
+
+    /**
+     * Temporarily grows the WebView to its full content height (and forces a
+     * software layer) so that [block] can draw content that is normally
+     * scrolled out of view. Everything is restored afterwards.
+     */
+    private inline fun <T> withFullContentWebView(
+        webView: WebView,
+        block: (widthPx: Int, heightPx: Int) -> T
+    ): T {
+        val width = webView.width.coerceAtLeast(1)
+        val contentHeight = maxOf(webView.contentHeight, webView.height).coerceAtLeast(1)
+        val params = webView.layoutParams
+        val originalHeight = params?.height ?: ViewGroup.LayoutParams.MATCH_PARENT
+        val originalLayer = webView.layerType
+        val needResize = contentHeight > webView.height && params != null
+
+        if (needResize && params != null) {
+            params.height = contentHeight
+            webView.layoutParams = params
+            webView.measure(
+                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(contentHeight, View.MeasureSpec.EXACTLY)
+            )
+            webView.layout(0, 0, width, contentHeight)
+        }
+        // Software layer guarantees WebView.draw() renders into our Canvas
+        // instead of being skipped for a hardware-accelerated surface.
+        webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        try {
+            return block(width, contentHeight)
+        } finally {
+            webView.setLayerType(originalLayer, null)
+            if (needResize && params != null) {
+                params.height = originalHeight
+                webView.layoutParams = params
+                webView.requestLayout()
+            }
+        }
+    }
 
     // ------------------------------------------------------------------
     // PDF
@@ -51,80 +99,50 @@ object PdfExporter {
     ) {
         val jobName = documentTitle.ifBlank { "REMOOFFICE_Document" }
         val file = File(exportsDir(context), safeFileName(jobName, "pdf"))
-        val adapter = webView.createPrintDocumentAdapter(jobName)
-        val attributes = PrintAttributes.Builder()
-            .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
-            .setResolution(PrintAttributes.Resolution("pdf", "pdf", 300, 300))
-            .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
-            .build()
-
-        var pfd: ParcelFileDescriptor? = null
         try {
-            pfd = ParcelFileDescriptor.open(
-                file,
-                ParcelFileDescriptor.MODE_CREATE or
-                    ParcelFileDescriptor.MODE_READ_WRITE or
-                    ParcelFileDescriptor.MODE_TRUNCATE
-            )
-        } catch (e: Exception) {
-            onResult(Result.failure(e))
-            return
-        }
+            withFullContentWebView(webView) { widthPx, heightPx ->
+                val pdf = PdfDocument()
+                try {
+                    val scale = PAGE_WIDTH_PT.toFloat() / widthPx.toFloat()
+                    val slicePx = (PAGE_HEIGHT_PT / scale).toInt().coerceAtLeast(1)
+                    val whitePaint = Paint().apply { color = Color.WHITE }
 
-        val fd = pfd
-        val signal = CancellationSignal()
-        adapter.onStart()
-        adapter.onLayout(
-            null,
-            attributes,
-            signal,
-            object : PrintDocumentAdapter.LayoutResultCallback() {
-                override fun onLayoutFinished(info: PrintDocumentInfo?, changed: Boolean) {
-                    try {
-                        adapter.onWrite(
-                            arrayOf(PageRange.ALL_PAGES),
-                            fd,
-                            signal,
-                            object : PrintDocumentAdapter.WriteResultCallback() {
-                                override fun onWriteFinished(pages: Array<out PageRange>?) {
-                                    runCatching { fd.close() }
-                                    if (file.exists() && file.length() > 0) {
-                                        onResult(Result.success(file))
-                                    } else {
-                                        onResult(Result.failure(IllegalStateException("PDF file is empty")))
-                                    }
-                                }
-
-                                override fun onWriteFailed(error: CharSequence?) {
-                                    runCatching { fd.close() }
-                                    onResult(Result.failure(IllegalStateException(error?.toString() ?: "PDF write failed")))
-                                }
-
-                                override fun onWriteCancelled() {
-                                    runCatching { fd.close() }
-                                    file.delete()
-                                    onResult(Result.failure(IllegalStateException("PDF export cancelled")))
-                                }
-                            }
+                    var y = 0
+                    var pageNo = 1
+                    while (y < heightPx) {
+                        val info = PdfDocument.PageInfo.Builder(
+                            PAGE_WIDTH_PT, PAGE_HEIGHT_PT, pageNo
+                        ).create()
+                        val page = pdf.startPage(info)
+                        val canvas = page.canvas
+                        canvas.drawRect(
+                            0f, 0f, PAGE_WIDTH_PT.toFloat(), PAGE_HEIGHT_PT.toFloat(), whitePaint
                         )
-                    } catch (e: Exception) {
-                        runCatching { fd.close() }
-                        onResult(Result.failure(e))
+                        canvas.save()
+                        canvas.scale(scale, scale)
+                        canvas.translate(0f, -y.toFloat())
+                        webView.draw(canvas)
+                        canvas.restore()
+                        pdf.finishPage(page)
+                        y += slicePx
+                        pageNo++
                     }
+                    FileOutputStream(file).use { pdf.writeTo(it) }
+                } finally {
+                    pdf.close()
                 }
+            }
 
-                override fun onLayoutFailed(error: CharSequence?) {
-                    runCatching { fd.close() }
-                    onResult(Result.failure(IllegalStateException(error?.toString() ?: "PDF layout failed")))
-                }
-
-                override fun onLayoutCancelled() {
-                    runCatching { fd.close() }
-                    onResult(Result.failure(IllegalStateException("PDF layout cancelled")))
-                }
-            },
-            Bundle()
-        )
+            if (file.exists() && file.length() > 0) {
+                onResult(Result.success(file))
+            } else {
+                file.delete()
+                onResult(Result.failure(IllegalStateException("PDF file is empty")))
+            }
+        } catch (e: Exception) {
+            runCatching { file.delete() }
+            onResult(Result.failure(e))
+        }
     }
 
     /** Legacy print-dialog path, kept as an explicit user choice. */
@@ -151,23 +169,33 @@ object PdfExporter {
         onResult: (Result<File>) -> Unit
     ) {
         try {
-            val width = webView.width.coerceAtLeast(1)
-            val height = webView.contentHeight.coerceAtLeast(webView.height).coerceAtLeast(1)
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-            canvas.drawColor(android.graphics.Color.WHITE)
-            webView.draw(canvas)
-            val ext = if (jpeg) "jpg" else "png"
-            val file = File(exportsDir(context), safeFileName(documentTitle, ext))
-            FileOutputStream(file).use { out ->
-                bitmap.compress(
-                    if (jpeg) Bitmap.CompressFormat.JPEG else Bitmap.CompressFormat.PNG,
-                    if (jpeg) 92 else 100,
+            val file = withFullContentWebView(webView) { widthPx, heightPx ->
+                // Guard against absurdly tall pages that would exhaust memory.
+                val safeHeight = heightPx.coerceAtMost(16000)
+                val bitmap = Bitmap.createBitmap(widthPx, safeHeight, Bitmap.Config.ARGB_8888)
+                try {
+                    val canvas = Canvas(bitmap)
+                    canvas.drawColor(Color.WHITE)
+                    webView.draw(canvas)
+                    val ext = if (jpeg) "jpg" else "png"
+                    val out = File(exportsDir(context), safeFileName(documentTitle, ext))
+                    FileOutputStream(out).use { stream ->
+                        bitmap.compress(
+                            if (jpeg) Bitmap.CompressFormat.JPEG else Bitmap.CompressFormat.PNG,
+                            if (jpeg) 92 else 100,
+                            stream
+                        )
+                    }
                     out
-                )
+                } finally {
+                    bitmap.recycle()
+                }
             }
-            bitmap.recycle()
-            onResult(Result.success(file))
+            if (file.exists() && file.length() > 0) {
+                onResult(Result.success(file))
+            } else {
+                onResult(Result.failure(IllegalStateException("Image file is empty")))
+            }
         } catch (e: Exception) {
             onResult(Result.failure(e))
         }

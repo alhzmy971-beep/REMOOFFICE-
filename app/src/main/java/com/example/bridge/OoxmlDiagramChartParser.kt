@@ -256,6 +256,9 @@ object OoxmlDiagramChartParser {
                 layoutPartName = layoutPart,
                 stylePartName = stylePart,
                 colorPartName = colorPart,
+                originalLayoutXml = layoutPart?.let { allEntries[it] }?.let { String(it, Charsets.UTF_8) },
+                originalStyleXml = stylePart?.let { allEntries[it] }?.let { String(it, Charsets.UTF_8) },
+                originalColorsXml = colorPart?.let { allEntries[it] }?.let { String(it, Charsets.UTF_8) },
                 connections = connections
             )
         }.getOrNull()
@@ -265,8 +268,13 @@ object OoxmlDiagramChartParser {
         return runCatching {
             val doc = Jsoup.parse(xml, "", Parser.xmlParser())
 
-            // Title
-            var title = doc.select("c\\:title, title").select("c\\:v, a\\:t, t, v").text().trim()
+            // Title: only the chart-level title (not axis titles)
+            var title = doc.select("c\\:chart > c\\:title, chart > title").firstOrNull()
+                ?.select("c\\:v, a\\:t, t, v")?.text()?.trim().orEmpty()
+            if (title.isEmpty()) {
+                title = doc.select("c\\:title, title").firstOrNull()
+                    ?.select("c\\:v, a\\:t, t, v")?.text()?.trim().orEmpty()
+            }
             if (title.isEmpty()) title = "مخطط بياني"
 
             // Chart Type detection
@@ -318,13 +326,16 @@ object OoxmlDiagramChartParser {
                 }
             }
 
-            // Categories
+            // Categories: take them from the FIRST series only. In OOXML each
+            // series repeats the category cache; merging across series would
+            // duplicate / reorder labels for multi-series charts.
             val categories = mutableListOf<String>()
-            doc.select("c\\:cat pt, cat pt, c\\:strLit pt, strLit pt, c\\:cat c\\:pt, cat c\\:pt, c\\:xVal pt, xVal pt").forEach { pt ->
+            val firstSer = doc.select("c\\:ser, ser").firstOrNull()
+            val catScope = firstSer?.select("c\\:cat, cat, c\\:xVal, xVal")?.firstOrNull()
+                ?: doc.select("c\\:cat, cat, c\\:xVal, xVal").firstOrNull()
+            catScope?.select("c\\:pt, pt")?.forEach { pt ->
                 val v = pt.select("c\\:v, v, a\\:t, t").text().trim()
-                if (v.isNotEmpty() && !categories.contains(v)) {
-                    categories.add(v)
-                }
+                if (v.isNotEmpty()) categories.add(v)
             }
 
             // Series
@@ -334,7 +345,12 @@ object OoxmlDiagramChartParser {
 
             serElems.forEachIndexed { idx, ser ->
                 val serName = ser.select("c\\:tx c\\:v, tx v, c\\:tx a\\:t, tx t").text().trim().ifEmpty { "سلسلة ${idx + 1}" }
-                val valPts = ser.select("c\\:val pt, val pt, c\\:numLit pt, numLit pt, c\\:numLit c\\:pt, numLit c\\:pt, c\\:yVal pt, yVal pt")
+                val valPts = ser.select(
+                    "c\\:val c\\:pt, c\\:val c\\:numRef c\\:numCache c\\:pt, " +
+                    "c\\:val c\\:numLit c\\:pt, c\\:yVal c\\:pt, " +
+                    "c\\:yVal c\\:numRef c\\:numCache c\\:pt, c\\:yVal c\\:numLit c\\:pt, " +
+                    "val pt, numLit pt, numCache pt, yVal pt"
+                )
                 val values = mutableListOf<Double>()
                 valPts.forEach { pt ->
                     pt.select("c\\:v, v, a\\:t, t").text().trim().toDoubleOrNull()?.let { values.add(it) }

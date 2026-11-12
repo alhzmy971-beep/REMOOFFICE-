@@ -57,6 +57,7 @@ object PdfImporter {
     private fun importDocument(document: PDDocument): PdfImportResult {
         val sb = StringBuilder()
         val stripper = PDFTextStripper().apply { sortByPosition = true }
+        val styledStripper = StyledPdfTextStripper().apply { sortByPosition = true }
         val renderer = PDFRenderer(document)
         val pageCount = document.numberOfPages
 
@@ -88,7 +89,19 @@ object PdfImporter {
             val hasRealText = isMeaningfulText(pageText)
             if (hasRealText) {
                 directTextPages++
-                paragraphCount += appendTextParagraphs(sb, pageText)
+                // Re-extract this page with typography so font size / bold / italic / colour survive.
+                val styledLines = runCatching {
+                    styledStripper.lines.clear()
+                    styledStripper.startPage = pageIndex + 1
+                    styledStripper.endPage = pageIndex + 1
+                    styledStripper.getText(document)
+                    styledStripper.lines.toList()
+                }.getOrDefault(emptyList())
+                paragraphCount += if (styledLines.isNotEmpty()) {
+                    appendStyledParagraphs(sb, styledLines)
+                } else {
+                    appendTextParagraphs(sb, pageText)
+                }
                 // Preserve embedded images that live on this text page.
                 val imgs = runCatching { extractPageImages(page, pageIndex) }.getOrDefault(emptyList())
                 if (imgs.isNotEmpty()) {
@@ -189,6 +202,44 @@ object PdfImporter {
         return count
     }
 
+    /**
+     * Emit one paragraph per visual line, wrapping each typographic run in a
+     * span that carries font size, weight, style and colour. Runs that share the
+     * same formatting as the line's dominant run are still emitted verbatim so no
+     * text is lost.
+     */
+    private fun appendStyledParagraphs(sb: StringBuilder, lines: List<List<StyledPdfTextStripper.Run>>): Int {
+        var count = 0
+        lines.forEach { runs ->
+            val combined = runs.joinToString("") { it.text }
+            if (combined.trim().isEmpty()) return@forEach
+            val dominant = runs.maxByOrNull { it.text.length } ?: runs.first()
+            val pStyle = StringBuilder()
+            if (dominant.sizePt > 0f) pStyle.append("font-size:").append(dominant.sizePt).append("pt;")
+            if (dominant.colorHex != "#000000") pStyle.append("color:").append(dominant.colorHex).append(";")
+            sb.append("<p")
+            if (pStyle.isNotEmpty()) sb.append(" style=\"").append(pStyle).append("\"")
+            sb.append(">")
+            runs.forEach runLoop@{ run ->
+                if (run.text.isEmpty()) return@runLoop
+                val spanStyle = StringBuilder()
+                if (run.bold) spanStyle.append("font-weight:bold;")
+                if (run.italic) spanStyle.append("font-style:italic;")
+                if (run.sizePt > 0f && run.sizePt != dominant.sizePt) spanStyle.append("font-size:").append(run.sizePt).append("pt;")
+                if (run.colorHex != dominant.colorHex) spanStyle.append("color:").append(run.colorHex).append(";")
+                if (spanStyle.isEmpty()) {
+                    sb.append(escapeHtml(run.text))
+                } else {
+                    sb.append("<span style=\"").append(spanStyle).append("\">")
+                        .append(escapeHtml(run.text)).append("</span>")
+                }
+            }
+            sb.append("</p>")
+            count++
+        }
+        return count
+    }
+
     private fun countLinks(page: PDPage): Int {
         var n = 0
         page.annotations.forEach { ann ->
@@ -210,7 +261,7 @@ object PdfImporter {
                         val bmp = Bitmap.createBitmap(bi.width, bi.height, Bitmap.Config.ARGB_8888)
                         // Copy pixels row by row to avoid relying on Android-specific converters.
                         val pixels = IntArray(bi.width * bi.height)
-                        bi.getRGB(0, 0, bi.width, bi.height, pixels, 0, bi.width)
+                        bi.getPixels(pixels, 0, bi.width, 0, 0, bi.width, bi.height)
                         bmp.setPixels(pixels, 0, bi.width, 0, 0, bi.width, bi.height)
                         val baos = ByteArrayOutputStream()
                         bmp.compress(Bitmap.CompressFormat.JPEG, 85, baos)

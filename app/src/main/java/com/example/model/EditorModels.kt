@@ -320,6 +320,13 @@ data class SmartArtData(
     val layoutPartName: String? = null,
     val stylePartName: String? = null,
     val colorPartName: String? = null,
+    // Raw XML of the layout / quick-style / color parts, preserved so that
+    // editing node text/colours in the app does NOT destroy the original
+    // visual arrangement on export. The data part is always regenerated
+    // from the model so user edits are never lost.
+    val originalLayoutXml: String? = null,
+    val originalStyleXml: String? = null,
+    val originalColorsXml: String? = null,
     val connections: List<SmartArtConnection> = emptyList()
 )
 

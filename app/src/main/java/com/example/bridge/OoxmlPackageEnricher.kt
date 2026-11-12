@@ -93,10 +93,17 @@ object OoxmlPackageEnricher {
             """.trimIndent()
             contentTypesXml = insertBeforeClosingTypes(contentTypesXml, ctSnippet)
 
-            // Add diagrams data, layout, style, colors files
-            entries["word/diagrams/data$num.xml"] = (sa.originalXml ?: generateSmartArtDataXml(sa, num)).toByteArray(Charsets.UTF_8)
-            entries["word/diagrams/layout$num.xml"] = generateSmartArtLayoutXml(sa).toByteArray(Charsets.UTF_8)
-            entries["word/diagrams/quickStyle$num.xml"] = generateSmartArtStyleXml().toByteArray(Charsets.UTF_8)
+            // Add diagrams parts.
+            // IMPORTANT: the data part is ALWAYS regenerated from the current
+            // model so that node text / level / colour / add / delete edits made
+            // in the app are persisted. (Previously we reused originalXml, which
+            // silently discarded every edit on an imported SmartArt.)
+            entries["word/diagrams/data$num.xml"] = generateSmartArtDataXml(sa, num).toByteArray(Charsets.UTF_8)
+            // Layout + quick-style are visual templates: preserve the original
+            // ones when available so the arrangement does not change on export.
+            entries["word/diagrams/layout$num.xml"] = (sa.originalLayoutXml ?: generateSmartArtLayoutXml(sa)).toByteArray(Charsets.UTF_8)
+            entries["word/diagrams/quickStyle$num.xml"] = (sa.originalStyleXml ?: generateSmartArtStyleXml()).toByteArray(Charsets.UTF_8)
+            // Colours are regenerated so palette edits (primary/accent) apply.
             entries["word/diagrams/colors$num.xml"] = generateSmartArtColorsXml(sa).toByteArray(Charsets.UTF_8)
         }
 
@@ -141,14 +148,26 @@ object OoxmlPackageEnricher {
             """.trimIndent()
             relsXml = insertBeforeClosingRelationships(relsXml, relsSnippet)
 
-            // Content Types
+            // Content Types (chart + embedded workbook)
             val ctSnippet = """
                 <Override PartName="/word/charts/chart$num.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>
+                <Override PartName="/word/embeddings/Microsoft_Excel_Worksheet$num.xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>
             """.trimIndent()
             contentTypesXml = insertBeforeClosingTypes(contentTypesXml, ctSnippet)
 
-            // Add chart file
-            entries["word/charts/chart$num.xml"] = (chart.originalXml ?: generateChartXml(chart, num)).toByteArray(Charsets.UTF_8)
+            // Embed a real workbook so "Edit Data" works in Word, and wire it
+            // up through the chart part relationship.
+            val workbookBytes = buildChartWorkbook(chart)
+            entries["word/embeddings/Microsoft_Excel_Worksheet$num.xlsx"] = workbookBytes
+            entries["word/charts/_rels/chart$num.xml.rels"] = """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package" Target="../embeddings/Microsoft_Excel_Worksheet$num.xlsx"/>
+                </Relationships>
+            """.trimIndent().toByteArray(Charsets.UTF_8)
+
+            // Always regenerate the chart XML from the model so data edits persist.
+            entries["word/charts/chart$num.xml"] = generateChartXml(chart, num).toByteArray(Charsets.UTF_8)
         }
 
         // Update modified main parts
@@ -171,7 +190,7 @@ object OoxmlPackageEnricher {
         val cxns = StringBuilder()
 
         val titleEscaped = escapeXml(data.title.ifBlank { "SmartArt $num" })
-        // Root point with title
+        // Root point (type="doc") is always modelId 0.
         pts.append("""
             <dgm:pt modelId="0" type="doc">
                 <dgm:prSet/>
@@ -188,8 +207,24 @@ object OoxmlPackageEnricher {
             </dgm:pt>
         """.trimIndent())
 
+        // Stable model id per node. Reuse the imported modelId when present so
+        // that relationships keep pointing at the right point; otherwise assign
+        // a fresh one that can never collide with the root ("0").
+        val modelIds = data.nodes.mapIndexed { idx, node ->
+            node.modelId?.ifBlank { null } ?: "n${idx + 1}"
+        }
+        // Resolve a parent reference that may be either a node.id ("sa_node_3")
+        // or a raw modelId ("3") into the canonical modelId.
+        val idToModel = HashMap<String, String>()
         data.nodes.forEachIndexed { idx, node ->
-            val modelId = node.modelId?.ifBlank { null } ?: "${idx + 1}"
+            idToModel[node.id] = modelIds[idx]
+            node.modelId?.ifBlank { null }?.let { idToModel[it] = modelIds[idx] }
+        }
+
+        val siblingOrdinal = HashMap<String, Int>()
+
+        data.nodes.forEachIndexed { idx, node ->
+            val modelId = modelIds[idx]
             val textEscaped = escapeXml(node.text)
             val colorAttr = node.colorHex?.removePrefix("#")?.let { """<a:solidFill><a:srgbClr val="$it"/></a:solidFill>""" } ?: ""
             val fontAttr = node.fontName?.let { """<a:latin typeface="$it"/><a:cs typeface="$it"/>""" } ?: ""
@@ -212,9 +247,17 @@ object OoxmlPackageEnricher {
                 </dgm:pt>
             """.trimIndent())
 
-            // Connections
-            val parentModelId = node.parentId?.ifBlank { null } ?: (if (node.level > 0) "1" else "0")
-            cxns.append("""<dgm:cxn modelId="cxn_${idx + 1}" type="parOf" srcId="$parentModelId" destId="$modelId" srcOrd="$idx" destOrd="0"/>""")
+            // Parent resolution: explicit parentId -> mapped modelId;
+            // otherwise every top-level node attaches to the root (0).
+            val explicitParent = node.parentId?.ifBlank { null }
+            val parentModelId = when {
+                explicitParent != null && idToModel.containsKey(explicitParent) -> idToModel[explicitParent]!!
+                explicitParent != null && explicitParent == "0" -> "0"
+                else -> "0"
+            }
+            val ord = siblingOrdinal.getOrDefault(parentModelId, 0)
+            siblingOrdinal[parentModelId] = ord + 1
+            cxns.append("""<dgm:cxn modelId="cxn_${idx + 1}" type="parOf" srcId="$parentModelId" destId="$modelId" srcOrd="$ord" destOrd="0"/>""")
         }
 
         return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -265,46 +308,98 @@ object OoxmlPackageEnricher {
 </dgm:colorDef>""".trim()
     }
 
+    private fun columnLetter(index: Int): String {
+        // 1 -> A, 2 -> B, 27 -> AA
+        var n = index
+        val sb = StringBuilder()
+        while (n > 0) {
+            val rem = (n - 1) % 26
+            sb.insert(0, ('A' + rem))
+            n = (n - 1) / 26
+        }
+        return sb.toString()
+    }
+
+    private fun buildChartWorkbook(chart: ChartData): ByteArray {
+        val wb = org.apache.poi.xssf.usermodel.XSSFWorkbook()
+        try {
+            val sheet = wb.createSheet("Sheet1")
+            val header = sheet.createRow(0)
+            header.createCell(0).setCellValue("Category")
+            chart.series.forEachIndexed { i, s ->
+                header.createCell(i + 1).setCellValue(s.name)
+            }
+            val isScatter = chart.type.equals("scatter", ignoreCase = true)
+            chart.categories.forEachIndexed { r, cat ->
+                val row = sheet.createRow(r + 1)
+                if (isScatter) {
+                    val num = cat.toDoubleOrNull()
+                    if (num != null) row.createCell(0).setCellValue(num)
+                    else row.createCell(0).setCellValue(cat)
+                } else {
+                    row.createCell(0).setCellValue(cat)
+                }
+                chart.series.forEachIndexed { i, s ->
+                    row.createCell(i + 1).setCellValue(s.values.getOrNull(r) ?: 0.0)
+                }
+            }
+            val baos = ByteArrayOutputStream()
+            wb.write(baos)
+            return baos.toByteArray()
+        } finally {
+            runCatching { wb.close() }
+        }
+    }
+
     private fun generateChartXml(chart: ChartData, num: Int): String {
         val defaultColors = listOf("1A56DB", "10B981", "F59E0B", "EF4444", "8B5CF6", "EC4899", "14B8A6")
         val titleEscaped = escapeXml(chart.title.ifBlank { "Chart" })
         val type = chart.type.lowercase()
+        val isScatter = type == "scatter"
+        val catCount = chart.categories.size
+        val lastCatRow = catCount + 1
 
-        // Categories string points
+        // Category cache (string for normal charts, numeric for scatter).
+        fun cleanNum(d: Double): String =
+            if (d == d.toLong().toDouble()) d.toLong().toString() else d.toString()
         val catPts = chart.categories.mapIndexed { idx, cat ->
-            """<c:pt idx="$idx"><c:v>${escapeXml(cat)}</c:v></c:pt>"""
+            val v = if (isScatter) {
+                cat.toDoubleOrNull()?.let { cleanNum(it) } ?: idx.toString()
+            } else escapeXml(cat)
+            """<c:pt idx="$idx"><c:v>$v</c:v></c:pt>"""
         }.joinToString("")
 
-        // Build series XML
+        // Build series XML with strRef/numRef pointing at the embedded workbook,
+        // so Word can open "Edit Data" and re-plot from real data.
         val serXml = chart.series.mapIndexed { sIdx, s ->
             val sName = escapeXml(s.name)
             val colorHex = (s.colorHex?.removePrefix("#") ?: defaultColors[sIdx % defaultColors.size])
+            val col = columnLetter(sIdx + 2) // A = categories, B.. = series
             val valPts = s.values.mapIndexed { vIdx, v ->
                 """<c:pt idx="$vIdx"><c:v>$v</c:v></c:pt>"""
             }.joinToString("")
+            val count = s.values.size
+
+            val dollar = "$"
+            val catRange = "Sheet1!${dollar}A${dollar}2:${dollar}A${dollar}$lastCatRow"
+            val catOrX = if (isScatter) {
+                """<c:xVal><c:numRef><c:f>$catRange</c:f><c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="$catCount"/>$catPts</c:numCache></c:numRef></c:xVal>"""
+            } else {
+                """<c:cat><c:strRef><c:f>$catRange</c:f><c:strCache><c:ptCount val="$catCount"/>$catPts</c:strCache></c:strRef></c:cat>"""
+            }
+            val valTag = if (isScatter) "yVal" else "val"
 
             """
                 <c:ser>
                     <c:idx val="$sIdx"/>
                     <c:order val="$sIdx"/>
-                    <c:tx><c:v>$sName</c:v></c:tx>
+                    <c:tx><c:strRef><c:f>Sheet1!${dollar}${col}${dollar}1</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>$sName</c:v></c:pt></c:strCache></c:strRef></c:tx>
                     <c:spPr>
                         <a:solidFill><a:srgbClr val="$colorHex"/></a:solidFill>
                         <a:ln w="25400"><a:solidFill><a:srgbClr val="$colorHex"/></a:solidFill></a:ln>
                     </c:spPr>
-                    <c:cat>
-                        <c:strLit>
-                            <c:ptCount val="${chart.categories.size}"/>
-                            $catPts
-                        </c:strLit>
-                    </c:cat>
-                    <c:val>
-                        <c:numLit>
-                            <c:formatCode>General</c:formatCode>
-                            <c:ptCount val="${s.values.size}"/>
-                            $valPts
-                        </c:numLit>
-                    </c:val>
+                    $catOrX
+                    <c:$valTag><c:numRef><c:f>Sheet1!${dollar}${col}${dollar}2:${dollar}${col}${dollar}${count + 1}</c:f><c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="$count"/>$valPts</c:numCache></c:numRef></c:$valTag>
                 </c:ser>
             """.trimIndent()
         }.joinToString("")
@@ -416,15 +511,30 @@ object OoxmlPackageEnricher {
         $legendXml
         <c:plotVisOnly val="1"/>
     </c:chart>
+    <c:externalData r:id="rId1"><c:autoUpdate val="0"/></c:externalData>
 </c:chartSpace>""".trim()
     }
 
     private fun replaceParagraphWithXml(documentXml: String, marker: String, replacementXml: String): String {
-        // Find the <w:p> element containing the marker and replace the entire <w:p>...</w:p>
+        // Find the <w:p> element containing the marker and replace the entire <w:p>...</w:p>.
+        // We must NOT match <w:pPr>, <w:pStyle>, <w:pBdr> etc., so only accept
+        // "<w:p>" or "<w:p " (followed by whitespace).
         val markerIndex = documentXml.indexOf(marker)
         if (markerIndex == -1) return documentXml
 
-        val pStart = documentXml.lastIndexOf("<w:p", markerIndex)
+        var pStart = -1
+        var searchFrom = markerIndex
+        while (true) {
+            val idx = documentXml.lastIndexOf("<w:p", searchFrom)
+            if (idx == -1) break
+            val after = idx + 4
+            val nextChar = if (after < documentXml.length) documentXml[after] else ' '
+            if (nextChar == '>' || nextChar.isWhitespace()) {
+                pStart = idx
+                break
+            }
+            searchFrom = idx - 1
+        }
         val pEnd = documentXml.indexOf("</w:p>", markerIndex)
         if (pStart != -1 && pEnd != -1) {
             val before = documentXml.substring(0, pStart)

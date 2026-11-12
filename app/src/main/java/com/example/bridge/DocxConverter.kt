@@ -30,6 +30,7 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.nodes.Node
 import org.jsoup.nodes.TextNode
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.STFldCharType
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.STPageOrientation
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -135,6 +136,38 @@ object DocxConverter {
         }
     }
 
+    private fun exportTocField(document: XWPFDocument, element: Element) {
+        // Field begin + instruction + separate (start of cached result)
+        val pBegin = document.createParagraph()
+        val rBegin = pBegin.createRun()
+        rBegin.ctr.addNewFldChar().setFldCharType(STFldCharType.BEGIN)
+        val rInstr = pBegin.createRun()
+        rInstr.ctr.addNewInstrText().setStringValue(" TOC \\o \"1-3\" \\h \\z \\u ")
+        val rSep = pBegin.createRun()
+        rSep.ctr.addNewFldChar().setFldCharType(STFldCharType.SEPARATE)
+
+        // Cached entries (title + tab + page number) so the TOC is not empty
+        // before the user updates fields in Word.
+        element.select("li").forEach { li ->
+            val title = li.select("a").text().trim().removePrefix("•").trim()
+            val page = li.select("[data-toc-page]").text().trim()
+            if (title.isNotEmpty()) {
+                val p = document.createParagraph()
+                val r = p.createRun()
+                r.setText(title)
+                if (page.isNotEmpty()) {
+                    r.addTab()
+                    p.createRun().setText(page)
+                }
+            }
+        }
+
+        // Field end
+        val pEnd = document.createParagraph()
+        val rEnd = pEnd.createRun()
+        rEnd.ctr.addNewFldChar().setFldCharType(STFldCharType.END)
+    }
+
     private fun processBlockElement(
         document: XWPFDocument,
         element: Element,
@@ -165,6 +198,13 @@ object DocxConverter {
                 val r = p.createRun()
                 r.setText("___REMO_SMARTART_MARKER_${smartArt.id}___")
             }
+            return
+        }
+
+        // Table of contents -> real Word TOC field (multi-paragraph, with a
+        // cached result so the entries are visible before Word updates it).
+        if (element.id() == "remofficeTocBox" || element.hasClass("remoffice-toc-box")) {
+            exportTocField(document, element)
             return
         }
 

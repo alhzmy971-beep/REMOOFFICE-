@@ -375,10 +375,12 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             isOnlineConverting = true
             conversionProgress = 5
             conversionStatusText = "قراءة ملف PDF وتجهيزه..."
+            var tempPdf: java.io.File? = null
+            var docxFile: java.io.File? = null
             try {
                 val fileName = getFileName(context, uri) ?: "مستند.pdf"
                 val cleanTitle = fileName.substringBeforeLast(".")
-                val tempPdf = withContext(Dispatchers.IO) {
+                tempPdf = withContext(Dispatchers.IO) {
                     val file = java.io.File(context.cacheDir, "temp_online_upload_${System.currentTimeMillis()}.pdf")
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         java.io.FileOutputStream(file).use { out -> input.copyTo(out) }
@@ -388,7 +390,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
 
                 val convResult = OnlinePdfToWordService.convertPdfToDocx(
                     context = context,
-                    pdfFile = tempPdf,
+                    pdfFile = tempPdf!!,
                     apiKey = OnlinePdfToWordService.getApiKey(context),
                     onProgress = { pct, status ->
                         conversionProgress = pct
@@ -396,17 +398,14 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     }
                 )
 
-                tempPdf.delete()
-
                 if (convResult.isSuccess) {
-                    val docxFile = convResult.getOrThrow()
+                    docxFile = convResult.getOrThrow()
                     conversionStatusText = "استيراد وتجهيز مستند Word..."
                     val importedPayload = withContext(Dispatchers.IO) {
-                        docxFile.inputStream().use { input ->
+                        docxFile!!.inputStream().use { input ->
                             DocxConverter.docxToPayload(input)
                         }
                     }
-                    docxFile.delete()
 
                     val saved = repository.createOrUpdateDocument(
                         id = null,
@@ -438,7 +437,12 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             } catch (e: Exception) {
                 viewModel.showMessage("خطأ أثناء التحويل: ${e.localizedMessage}")
             } finally {
+                // Guaranteed cleanup of all local temp files on success, failure, or cancel.
+                try { tempPdf?.delete() } catch (_: Exception) {}
+                try { docxFile?.delete() } catch (_: Exception) {}
                 isOnlineConverting = false
+                conversionProgress = 0
+                conversionStatusText = ""
             }
         }
     }
@@ -1441,11 +1445,12 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "سيتم رفع ملف PDF مؤقتاً إلى خدمة CloudConvert لتحويله إلى مستند Word (DOCX) عالي الدقة مع الحفاظ على التنسيقات والجداول والنصوص.",
-                        fontSize = 13.sp
+                        "⚠️ تنبيه خصوصية: بمتابعتك، سيغادر ملف PDF جهازك ويُرفع مؤقتاً عبر الإنترنت إلى خدمة CloudConvert (مزود التحويل) لتحويله إلى مستند Word (DOCX) عالي الدقة مع الحفاظ على التنسيقات والجداول والنصوص.",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        "• لا يتم حفظ الملف بشكل دائم، ويتم حذفه تلقائياً من الخادم فور انتهاء التحويل.",
+                        "• لا يتم حفظ الملف بشكل دائم، ويتم حذفه تلقائياً من الخادم فور انتهاء التحويل (أو عند الإلغاء أو حدوث خطأ).",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.primary
                     )
