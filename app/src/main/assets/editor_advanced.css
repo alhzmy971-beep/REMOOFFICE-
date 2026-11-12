@@ -1,0 +1,141 @@
+/* REMOOFFICE advanced editing layer: tables, images, shapes, text boxes */
+
+/* ---- Table selection ---- */
+.page table.remo-table-selected {
+  outline: 2px solid #1A56DB;
+  outline-offset: 2px;
+}
+.page td.remo-cell-selected,
+.page th.remo-cell-selected {
+  background-color: rgba(26, 86, 219, 0.12) !important;
+  box-shadow: inset 0 0 0 2px #1A56DB;
+}
+.page td.remo-cell-anchor,
+.page th.remo-cell-anchor {
+  box-shadow: inset 0 0 0 2.5px #0F172A;
+}
+.page table[data-header-repeat="true"] thead th {
+  background-color: #F1F5F9;
+}
+@media print {
+  .page table[data-header-repeat="true"] thead {
+    display: table-header-group;
+  }
+}
+
+/* ---- Floating overlay & handles ---- */
+#remoOverlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483000;
+}
+#remoOverlay .remo-frame {
+  position: absolute;
+  border: 1.5px solid #1A56DB;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+#remoOverlay .remo-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  background: #FFFFFF;
+  border: 2px solid #1A56DB;
+  border-radius: 50%;
+  pointer-events: auto;
+  touch-action: none;
+  box-sizing: border-box;
+}
+#remoOverlay .remo-handle.remo-rotate {
+  border-radius: 50%;
+  background: #1A56DB;
+  border-color: #FFFFFF;
+}
+#remoOverlay .remo-bar {
+  position: absolute;
+  background: rgba(26, 86, 219, 0.35);
+  pointer-events: auto;
+  touch-action: none;
+}
+#remoOverlay .remo-bar.vertical { width: 8px; margin-left: -4px; cursor: col-resize; }
+#remoOverlay .remo-bar.horizontal { height: 8px; margin-top: -4px; cursor: row-resize; }
+#remoOverlay .remo-bar:hover { background: rgba(26, 86, 219, 0.7); }
+#remoOverlay .remo-toolbar {
+  position: absolute;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: #0F172A;
+  border-radius: 8px;
+  pointer-events: auto;
+  box-shadow: 0 4px 14px rgba(15,23,42,0.35);
+}
+#remoOverlay .remo-toolbar button {
+  font: 12px/1 'Noto Sans Arabic', sans-serif;
+  color: #fff;
+  background: #1E293B;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+#remoOverlay .remo-toolbar button:hover { background: #1A56DB; }
+
+/* ---- Images ---- */
+.page img.remo-img-selected {
+  outline: 2.5px solid #1A56DB;
+  outline-offset: 2px;
+}
+.page img[data-remo-wrap="square"] { margin: 6px 12px; }
+.page img[data-remo-wrap="tight"] { margin: 2px 6px; }
+
+/* ---- Editable shapes / text boxes ---- */
+.page .editable-shape {
+  position: relative;
+  display: inline-block;
+  vertical-align: top;
+  margin: 8px 0;
+  line-height: 0;
+}
+.page .editable-shape.remo-shape-selected {
+  outline: 2px dashed #1A56DB;
+  outline-offset: 3px;
+}
+.page .editable-shape svg { display: block; }
+.page .editable-shape .shape-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.3;
+  padding: 4px;
+  white-space: pre-wrap;
+  overflow: hidden;
+  cursor: text;
+}
+.page .editable-textbox {
+  position: relative;
+  display: block;
+  margin: 10px 0;
+  padding: 10px 14px;
+  min-height: 44px;
+  border: 1.5px solid #1A56DB;
+  background: #F8FAFC;
+  border-radius: 6px;
+  line-height: 1.5;
+  cursor: text;
+}
+.page .editable-textbox.remo-shape-selected {
+  outline: 2px dashed #1A56DB;
+  outline-offset: 3px;
+}
+.page .editable-group {
+  position: relative;
+  display: inline-block;
+  border: 1px dashed #94A3B8;
+  padding: 4px;
+}

@@ -387,6 +387,7 @@
     .page-break::after { content: ""; }
   }
 </style>
+<link rel="stylesheet" href="editor_advanced.css" />
 </head>
 <body>
 <div class="workspace">
@@ -542,8 +543,33 @@
     } catch (e) {}
   }
 
+  function refreshDynamicFields() {
+    try {
+      var breaks = Array.prototype.slice.call(editor.querySelectorAll('.page-break'));
+      var total = breaks.length + 1;
+      editor.querySelectorAll('[data-field="PAGE"]').forEach(function (el) {
+        var pos = 0;
+        breaks.forEach(function (b) {
+          if (b.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) pos++;
+        });
+        var fmt = el.getAttribute('data-format') || 'n';
+        var txt = fmt === 'n-of-N' ? (pos + 1) + ' / ' + total : String(pos + 1);
+        if (el.textContent !== txt) el.textContent = txt;
+      });
+      editor.querySelectorAll('[data-field="DATE"]').forEach(function (el) {
+        var fmt = el.getAttribute('data-date-format') || 'long';
+        var d = new Date();
+        var txt = fmt === 'short'
+          ? d.toLocaleDateString('ar-EG')
+          : d.toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+        if (el.textContent !== txt) el.textContent = txt;
+      });
+    } catch (e) {}
+  }
+
   function notifyContentChanged() {
     if (suppressTracking) return;
+    refreshDynamicFields();
     if (window.AndroidBridge && window.AndroidBridge.onContentChanged) {
       const payload = JSON.stringify({
         bodyHtml: editor.innerHTML,
@@ -1109,14 +1135,16 @@
 
     insertPageNumber: () => {
       focusEditor();
-      document.execCommand('insertHTML', false, '<span class="page-number" contenteditable="false">1</span>&nbsp;');
+      document.execCommand('insertHTML', false, '<span class="page-number" data-field="PAGE" data-format="n" contenteditable="false">1</span>&nbsp;');
+      refreshDynamicFields();
       notifyContentChanged();
     },
 
     insertDateTime: () => {
       focusEditor();
       const now = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
-      document.execCommand('insertHTML', false, `<span>${now}</span>&nbsp;`);
+      document.execCommand('insertHTML', false, `<span data-field="DATE" data-date-format="long">${now}</span>&nbsp;`);
+      refreshDynamicFields();
       notifyContentChanged();
     },
 
@@ -2129,5 +2157,6 @@
   setTimeout(notifySelectionState, 200);
 })();
 </script>
+<script src="editor_advanced.js"></script>
 </body>
 </html>

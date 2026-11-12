@@ -16,7 +16,15 @@ object HtmlSanitizer {
             "div", "span", "a", "img", "mark",
             "svg", "rect", "circle", "line", "polygon", "path"
         )
-        .addAttributes(":all", "style", "class", "dir", "align", "id", "data-smartart-id", "data-smartart-json", "data-chart-id", "data-chart-json", "data-anchor-id")
+        .addAttributes(
+            ":all", "style", "class", "dir", "align", "id",
+            "contenteditable", "spellcheck",
+            "data-smartart-id", "data-smartart-json", "data-chart-id", "data-chart-json", "data-anchor-id",
+            "data-field", "data-date-format", "data-format",
+            "data-remo-img", "data-remo-table-id", "data-header-repeat", "data-remo-id",
+            "data-shape-id", "data-shape-json", "data-group-id", "data-group-json",
+            "data-pdf-fallback", "data-comment-id"
+        )
         .addAttributes("a", "href", "target", "rel")
         .addAttributes("img", "src", "alt", "width", "height")
         .addAttributes("td", "colspan", "rowspan")

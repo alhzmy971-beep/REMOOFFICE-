@@ -148,7 +148,136 @@ data class DocumentImportReport(
     val drawingMlConvertedCount: Int = 0,
     val imageFallbackCount: Int = 0,
     val unsupportedCount: Int = 0,
-    val unsupportedReasons: List<String> = emptyList()
+    val unsupportedReasons: List<String> = emptyList(),
+    // PDF-specific, page-by-page diagnostics
+    val pageCount: Int = 0,
+    val directTextPages: Int = 0,
+    val ocrPages: Int = 0,
+    val failedOcrPages: Int = 0,
+    val imageOnlyPages: Int = 0,
+    val shapeCount: Int = 0,
+    val linkCount: Int = 0,
+    val ocrSuccessRate: Float = 0f,
+    val confidence: String = "", // "high", "medium", "low"
+    val failureReasons: List<String> = emptyList()
+)
+
+/** Geometry of an editable object on the page (CSS pixels, top-left origin). */
+data class ShapeTransform(
+    val x: Float = 0f,
+    val y: Float = 0f,
+    val w: Float = 160f,
+    val h: Float = 90f,
+    val rotation: Float = 0f,
+    val flipH: Boolean = false,
+    val flipV: Boolean = false
+)
+
+/** Visual formatting shared by shapes and text boxes. */
+data class ShapeStyle(
+    val fill: String = "#DBEAFE",
+    val stroke: String = "#1A56DB",
+    val strokeWidth: Float = 2f,
+    val strokeStyle: String = "solid", // solid | dashed | dotted | double
+    val opacity: Float = 1f,
+    val radius: Float = 6f
+)
+
+/** Text run formatting inside a shape / text box. */
+data class ShapeText(
+    val content: String = "",
+    val fontFamily: String = "Noto Sans Arabic",
+    val fontSize: Float = 14f,
+    val color: String = "#0F172A",
+    val align: String = "center", // left | center | right | justify
+    val dir: String = "rtl",      // rtl | ltr
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val underline: Boolean = false
+)
+
+/**
+ * Unified editable shape model. Covers native shapes, WordArt, DrawingML/VML
+ * imports and composite/grouped shapes.
+ */
+data class EditableShape(
+    val id: String,
+    val type: String = "rectangle", // rectangle|circle|ellipse|line|arrow|star|callout|wordart|drawingml|vml|group
+    val transform: ShapeTransform = ShapeTransform(),
+    val style: ShapeStyle = ShapeStyle(),
+    val text: ShapeText = ShapeText(),
+    val z: Int = 1,
+    val wrap: String = "inline", // inline|square|tight|front|behind
+    val groupId: String? = null,
+    val children: List<EditableShape> = emptyList(),
+    val originalXml: String? = null,
+    val originalPartName: String? = null
+)
+
+/** Real editable text box (a shape with type=textbox but its own model for clarity). */
+data class EditableTextBox(
+    val id: String,
+    val transform: ShapeTransform = ShapeTransform(),
+    val style: ShapeStyle = ShapeStyle(fill = "#F8FAFC", strokeWidth = 1.5f),
+    val text: ShapeText = ShapeText(align = "right", dir = "rtl"),
+    val z: Int = 1,
+    val wrap: String = "inline",
+    val groupId: String? = null
+)
+
+/** Group of shapes that can be moved / resized / ungrouped as one unit. */
+data class EditableGroup(
+    val id: String,
+    val transform: ShapeTransform = ShapeTransform(),
+    val children: List<EditableShape> = emptyList(),
+    val z: Int = 1
+)
+
+/** One cell of an editable table, including span information. */
+data class EditableTableCell(
+    val row: Int = 0,
+    val col: Int = 0,
+    val rowspan: Int = 1,
+    val colspan: Int = 1,
+    val html: String = "<br>",
+    val style: String = "",
+    val tag: String = "td"
+)
+
+/** Editable table model mirroring the descriptor-grid used by editor_advanced.js. */
+data class EditableTable(
+    val id: String,
+    val rows: Int = 0,
+    val cols: Int = 0,
+    val colWidths: List<Float?> = emptyList(),
+    val rowHeights: List<Float?> = emptyList(),
+    val headerRepeat: Boolean = false,
+    val tableStyle: String = "",
+    val cells: List<EditableTableCell> = emptyList()
+)
+
+/** Editable image model (transform + crop + wrap + border persisted as JSON). */
+data class EditableImage(
+    val id: String,
+    val src: String = "",
+    val width: Float? = null,
+    val height: Float? = null,
+    val x: Float = 0f,
+    val y: Float = 0f,
+    val rotate: Float = 0f,
+    val flipH: Boolean = false,
+    val flipV: Boolean = false,
+    val cropTop: Float = 0f,
+    val cropRight: Float = 0f,
+    val cropBottom: Float = 0f,
+    val cropLeft: Float = 0f,
+    val wrap: String = "inline",
+    val align: String = "center",
+    val opacity: Float = 1f,
+    val borderWidth: Float = 0f,
+    val borderColor: String = "#000000",
+    val radius: Float = 0f,
+    val z: Int = 1
 )
 
 data class SmartArtNode(
@@ -238,6 +367,11 @@ data class DocumentPayload(
     val properties: DocumentProperties = DocumentProperties(),
     val smartArts: List<SmartArtData> = emptyList(),
     val charts: List<ChartData> = emptyList(),
+    val tables: List<EditableTable> = emptyList(),
+    val images: List<EditableImage> = emptyList(),
+    val shapes: List<EditableShape> = emptyList(),
+    val textBoxes: List<EditableTextBox> = emptyList(),
+    val groups: List<EditableGroup> = emptyList(),
     val importReport: DocumentImportReport? = null
 )
 
