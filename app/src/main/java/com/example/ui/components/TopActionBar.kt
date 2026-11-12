@@ -14,7 +14,6 @@ import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material3.Icon
@@ -40,8 +39,7 @@ fun TopActionBar(
     onRedo: () -> Unit,
     onOpenDocx: () -> Unit,
     onSaveDocx: () -> Unit,
-    onSharePdf: () -> Unit,
-    onShareImage: () -> Unit
+    onSharePdf: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -138,16 +136,6 @@ fun TopActionBar(
                 Icon(
                     imageVector = Icons.Outlined.PictureAsPdf,
                     contentDescription = "مشاركة كـ PDF"
-                )
-            }
-
-            IconButton(
-                onClick = onShareImage,
-                modifier = Modifier.testTag("share_image_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Image,
-                    contentDescription = "مشاركة كصورة"
                 )
             }
         }

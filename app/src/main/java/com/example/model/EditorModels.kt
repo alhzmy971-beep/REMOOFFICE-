@@ -142,12 +142,88 @@ data class DocumentImportReport(
     val smartArtCount: Int = 0,
     val chartCount: Int = 0,
     val fieldCount: Int = 0,
+    val commentCount: Int = 0,
     val noteCount: Int = 0,
     val svgConvertedCount: Int = 0,
+    val drawingMlConvertedCount: Int = 0,
     val imageFallbackCount: Int = 0,
     val unsupportedCount: Int = 0,
     val unsupportedReasons: List<String> = emptyList()
 )
+
+data class SmartArtNode(
+    val id: String,
+    val text: String,
+    val level: Int = 0,
+    val parentId: String? = null,
+    val colorHex: String? = null,
+    val fontName: String? = null,
+    val fontSizePt: Int? = null,
+    val modelId: String? = null,
+    val connectionType: String? = null,
+    val presId: String? = null,
+    val order: Int = 0
+)
+
+data class SmartArtConnection(
+    val modelId: String = "",
+    val type: String = "parOf",
+    val sourceId: String = "",
+    val destId: String = "",
+    val presId: String? = null,
+    val sourceOrder: Int = 0,
+    val destOrder: Int = 0
+)
+
+data class SmartArtData(
+    val id: String,
+    val layoutType: String = "process", // "process", "hierarchy", "cycle", "relationship", "list", "matrix", "pyramid"
+    val title: String = "",
+    val nodes: List<SmartArtNode> = emptyList(),
+    val primaryColorHex: String = "#1A56DB",
+    val accentColorHex: String = "#3B82F6",
+    val direction: String = "rtl", // "rtl" or "ltr"
+    val widthPx: Int = 500,
+    val heightPx: Int = 260,
+    val stylePreset: String = "flat",
+    val originalXml: String? = null,
+    val originalPartName: String? = null,
+    val layoutPartName: String? = null,
+    val stylePartName: String? = null,
+    val colorPartName: String? = null,
+    val connections: List<SmartArtConnection> = emptyList()
+)
+
+data class ChartSeries(
+    val name: String,
+    val values: List<Double> = emptyList(),
+    val colorHex: String? = null
+)
+
+data class ChartData(
+    val id: String,
+    val type: String = "column", // "column", "bar", "line", "pie", "area", "scatter", "doughnut", "radar"
+    val title: String = "",
+    val categories: List<String> = emptyList(),
+    val series: List<ChartSeries> = emptyList(),
+    val showLegend: Boolean = true,
+    val showGrid: Boolean = true,
+    val direction: String = "rtl",
+    val widthPx: Int = 460,
+    val heightPx: Int = 280,
+    val xAxisLabel: String = "",
+    val yAxisLabel: String = "",
+    val stackedType: String? = null, // "standard", "stacked", "percentStacked"
+    val grouping: String? = null,
+    val has3D: Boolean = false,
+    val secondaryAxis: Boolean = false,
+    val legendPosition: String = "b", // "r", "l", "t", "b"
+    val numberFormat: String? = null,
+    val originalXml: String? = null,
+    val originalPartName: String? = null
+) {
+    val chartType: String get() = type
+}
 
 data class DocumentPayload(
     val bodyHtml: String = "<p><br></p>",
@@ -160,6 +236,8 @@ data class DocumentPayload(
     val bookmarks: List<DocumentBookmark> = emptyList(),
     val notes: List<DocumentNote> = emptyList(),
     val properties: DocumentProperties = DocumentProperties(),
+    val smartArts: List<SmartArtData> = emptyList(),
+    val charts: List<ChartData> = emptyList(),
     val importReport: DocumentImportReport? = null
 )
 
@@ -180,6 +258,10 @@ data class EditorSelectionState(
     val isNumberList: Boolean = false,
     val inTable: Boolean = false,
     val inImage: Boolean = false,
+    val inSmartArt: Boolean = false,
+    val selectedSmartArtId: String = "",
+    val inChart: Boolean = false,
+    val selectedChartId: String = "",
     val formatPainterActive: Boolean = false,
     val wordCount: Int = 0,
     val charCount: Int = 0,

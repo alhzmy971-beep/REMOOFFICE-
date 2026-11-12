@@ -3,11 +3,14 @@ name: Android Release
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
+      - fix-remooffice-suite
     tags:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-release-${{ github.ref }}
@@ -48,12 +51,12 @@ jobs:
           keytool -list -keystore my-upload-key.jks -storetype PKCS12 -storepass "$STORE_PASSWORD" -alias upload >/dev/null
       - name: Run unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
-      - name: Build signed release APK and bundle
+      - name: Build signed release APK
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew --no-daemon assembleRelease bundleRelease
+        run: ./gradlew --no-daemon assembleRelease
       - name: Verify APK signature
         run: |
           ${ANDROID_HOME}/build-tools/$(ls -1 ${ANDROID_HOME}/build-tools | sort -V | tail -1)/apksigner verify --verbose app/build/outputs/apk/release/app-release.apk
@@ -64,7 +67,19 @@ jobs:
           if-no-files-found: error
           path: |
             app/build/outputs/apk/release/app-release.apk
-            app/build/outputs/bundle/release/app-release.aab
+      - name: Create or update GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_TAG="release-${GITHUB_SHA:0:8}"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            RELEASE_TAG="${{ github.ref_name }}"
+          fi
+          echo "Publishing release with tag: $RELEASE_TAG"
+          gh release create "$RELEASE_TAG" app/build/outputs/apk/release/app-release.apk \
+            --title "RemoOffice $RELEASE_TAG" \
+            --notes "RemoOffice Production APK (Signed Release) - Built from commit $GITHUB_SHA" \
+            || gh release upload "$RELEASE_TAG" app/build/outputs/apk/release/app-release.apk --clobber
       - name: Remove signing material
         if: always()
         run: rm -f my-upload-key.jks
