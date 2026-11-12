@@ -46,4 +46,4 @@
 - [x] NEW: real Gradle build. Fixed 2 pre-existing compile blockers: PdfExporter used package-private PrintDocumentAdapter.*ResultCallback constructors (impossible in app code) -> rewritten on android.graphics.pdf.PdfDocument with full-content pagination; PdfImporter used Bitmap.getRGB -> getPixels. `:app:compileDebugKotlin` and `:app:assembleDebug` both BUILD SUCCESSFUL (app-debug.apk 79.9 MB).
 
 ## G. Push
-- [ ] Commit & push, honest report
+- [x] Commit & push, honest report (commit 2120490 -> main)
