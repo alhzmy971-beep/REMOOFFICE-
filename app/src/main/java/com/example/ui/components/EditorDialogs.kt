@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1076,6 +1078,356 @@ fun TrackedChangesPanelDialog(
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("إغلاق") }
+        }
+    )
+}
+
+@Composable
+fun SmartArtDialog(
+    initialSmartArt: com.example.model.SmartArtData? = null,
+    onDismiss: () -> Unit,
+    onConfirm: (com.example.model.SmartArtData) -> Unit,
+    onDelete: ((String) -> Unit)? = null
+) {
+    var title by remember { mutableStateOf(initialSmartArt?.title ?: "رسم تخطيطي SmartArt") }
+    var layoutType by remember { mutableStateOf(initialSmartArt?.layoutType ?: "hierarchy") }
+    var primaryColorHex by remember { mutableStateOf(initialSmartArt?.primaryColorHex ?: "#1A56DB") }
+    var dir by remember { mutableStateOf(initialSmartArt?.direction ?: "RTL") }
+    var nodes by remember {
+        mutableStateOf(
+            initialSmartArt?.nodes ?: listOf(
+                com.example.model.SmartArtNode("n1", "العنصر الرئيسي", level = 0),
+                com.example.model.SmartArtNode("n2", "العنصر الفرعي 1", level = 1),
+                com.example.model.SmartArtNode("n3", "العنصر الفرعي 2", level = 1)
+            )
+        )
+    }
+
+    val layouts = listOf(
+        "hierarchy" to "هيكلي (Hierarchy)",
+        "process" to "متتالي (Process)",
+        "cycle" to "دائري (Cycle)",
+        "list" to "قائمة (List)",
+        "matrix" to "مصفوفة (Matrix)",
+        "pyramid" to "هرمي (Pyramid)",
+        "relationship" to "علاقات (Relationship)"
+    )
+
+    val colors = listOf("#1A56DB", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#0284C7")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initialSmartArt != null) "تعديل SmartArt" else "إدراج SmartArt") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("عنوان التخطيط") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text("نوع التخطيط:", style = MaterialTheme.typography.titleSmall)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    layouts.forEach { (key, label) ->
+                        androidx.compose.material3.FilterChip(
+                            selected = layoutType == key,
+                            onClick = { layoutType = key },
+                            label = { Text(label.split(" ").first(), fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                Text("اللون الرئيسي:", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    colors.forEach { hex ->
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(android.graphics.Color.parseColor(hex)))
+                                .border(
+                                    width = if (primaryColorHex == hex) 2.5.dp else 0.dp,
+                                    color = if (primaryColorHex == hex) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                                .clickable { primaryColorHex = hex }
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("العقد والأحداث (${nodes.size}):", style = MaterialTheme.typography.titleSmall)
+                    TextButton(onClick = {
+                        val newId = "node_${System.currentTimeMillis()}"
+                        nodes = nodes + com.example.model.SmartArtNode(newId, "عقدة جديدة ${nodes.size + 1}", level = 1)
+                    }) {
+                        Text("+ إضافة عقدة", fontSize = 12.sp)
+                    }
+                }
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    nodes.forEachIndexed { idx, node ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedTextField(
+                                value = node.text,
+                                onValueChange = { newTxt ->
+                                    nodes = nodes.toMutableList().apply {
+                                        this[idx] = node.copy(text = newTxt)
+                                    }
+                                },
+                                label = { Text("عقدة ${idx + 1}") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = {
+                                val nextLevel = (node.level + 1) % 3
+                                nodes = nodes.toMutableList().apply {
+                                    this[idx] = node.copy(level = nextLevel)
+                                }
+                            }) {
+                                Text("م مستوى ${node.level}", fontSize = 10.sp)
+                            }
+                            TextButton(onClick = {
+                                if (nodes.size > 1) {
+                                    nodes = nodes.filterIndexed { i, _ -> i != idx }
+                                }
+                            }) {
+                                Text("✕", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (initialSmartArt != null && onDelete != null) {
+                    OutlinedButton(onClick = {
+                        onDelete(initialSmartArt.id)
+                        onDismiss()
+                    }) {
+                        Text("حذف SmartArt", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                Button(onClick = {
+                    val result = com.example.model.SmartArtData(
+                        id = initialSmartArt?.id ?: "sa_${System.currentTimeMillis()}",
+                        title = title.trim(),
+                        layoutType = layoutType,
+                        primaryColorHex = primaryColorHex,
+                        direction = dir,
+                        nodes = nodes
+                    )
+                    onConfirm(result)
+                    onDismiss()
+                }) {
+                    Text(if (initialSmartArt != null) "تحديث" else "إدراج")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إلغاء") }
+        }
+    )
+}
+
+@Composable
+fun ChartDialog(
+    initialChart: com.example.model.ChartData? = null,
+    onDismiss: () -> Unit,
+    onConfirm: (com.example.model.ChartData) -> Unit,
+    onDelete: ((String) -> Unit)? = null
+) {
+    var title by remember { mutableStateOf(initialChart?.title ?: "مخطط بياني") }
+    var chartType by remember { mutableStateOf(initialChart?.chartType ?: "column") }
+    var categoriesText by remember {
+        mutableStateOf(initialChart?.categories?.joinToString(", ") ?: "يناير, فبراير, مارس, أبريل")
+    }
+
+    var seriesList by remember {
+        mutableStateOf(
+            initialChart?.series ?: listOf(
+                com.example.model.ChartSeries("المبيعات", listOf(15.0, 28.0, 42.0, 35.0), colorHex = "#1A56DB"),
+                com.example.model.ChartSeries("الأرباح", listOf(8.0, 14.0, 22.0, 19.0), colorHex = "#10B981")
+            )
+        )
+    }
+
+    val chartTypes = listOf(
+        "column" to "عمودي (Column)",
+        "bar" to "شريطي (Bar)",
+        "line" to "خطي (Line)",
+        "pie" to "دائري (Pie)",
+        "doughnut" to "حلقي (Doughnut)",
+        "area" to "مساحي (Area)",
+        "scatter" to "مبعثر (Scatter)",
+        "radar" to "راداري (Radar)"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initialChart != null) "تعديل المخطط البياني" else "إدراج مخطط بياني") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("عنوان المخطط") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text("نوع المخطط:", style = MaterialTheme.typography.titleSmall)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    chartTypes.forEach { (key, label) ->
+                        androidx.compose.material3.FilterChip(
+                            selected = chartType == key,
+                            onClick = { chartType = key },
+                            label = { Text(label.split(" ").first(), fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = categoriesText,
+                    onValueChange = { categoriesText = it },
+                    label = { Text("الفئات (مفصولة بفارزة)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("السلاسل والبيانات:", style = MaterialTheme.typography.titleSmall)
+                    TextButton(onClick = {
+                        seriesList = seriesList + com.example.model.ChartSeries(
+                            name = "سلسلة ${seriesList.size + 1}",
+                            values = listOf(10.0, 20.0, 15.0, 25.0)
+                        )
+                    }) {
+                        Text("+ إضافة سلسلة", fontSize = 12.sp)
+                    }
+                }
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    seriesList.forEachIndexed { idx, series ->
+                        var name by remember(series) { mutableStateOf(series.name) }
+                        var valsText by remember(series) { mutableStateOf(series.values.joinToString(", ")) }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = name,
+                                    onValueChange = {
+                                        name = it
+                                        seriesList = seriesList.toMutableList().apply {
+                                            this[idx] = this[idx].copy(name = it)
+                                        }
+                                    },
+                                    label = { Text("اسم السلسلة") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = {
+                                    if (seriesList.size > 1) {
+                                        seriesList = seriesList.filterIndexed { i, _ -> i != idx }
+                                    }
+                                }) {
+                                    Text("حذف", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                                }
+                            }
+                            OutlinedTextField(
+                                value = valsText,
+                                onValueChange = {
+                                    valsText = it
+                                    val parsedValues = it.split(",").mapNotNull { v -> v.trim().toDoubleOrNull() }
+                                    seriesList = seriesList.toMutableList().apply {
+                                        this[idx] = this[idx].copy(values = parsedValues)
+                                    }
+                                },
+                                label = { Text("القيم (مفصولة بفارزة)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (initialChart != null && onDelete != null) {
+                    OutlinedButton(onClick = {
+                        onDelete(initialChart.id)
+                        onDismiss()
+                    }) {
+                        Text("حذف المخطط", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                Button(onClick = {
+                    val cats = categoriesText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    val result = com.example.model.ChartData(
+                        id = initialChart?.id ?: "chart_${System.currentTimeMillis()}",
+                        title = title.trim(),
+                        type = chartType,
+                        categories = cats.ifEmpty { listOf("1", "2", "3") },
+                        series = seriesList
+                    )
+                    onConfirm(result)
+                    onDismiss()
+                }) {
+                    Text(if (initialChart != null) "تحديث" else "إدراج")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إلغاء") }
         }
     )
 }

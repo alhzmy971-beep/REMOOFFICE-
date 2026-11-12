@@ -290,4 +290,63 @@ class DocumentRepositoryAndSecurityTest {
 
         repo.deleteDocument(saved.id)
     }
+
+    @Test
+    fun documentRepository_savesAndRestoresSmartArtsAndCharts() {
+        val testDir = File("build/tmp/test_docs_smartart_charts").apply { deleteRecursively(); mkdirs() }
+        val repo = DocumentRepository(testDir)
+
+        val smartArt = com.example.model.SmartArtData(
+            id = "sa_persisted_1",
+            title = "هيكل الإدارة",
+            layoutType = "hierarchy",
+            primaryColorHex = "#1A56DB",
+            direction = "RTL",
+            nodes = listOf(
+                com.example.model.SmartArtNode("n1", "الرئيس التنفيذي", level = 0),
+                com.example.model.SmartArtNode("n2", "نائب الرئيس", level = 1, parentId = "n1")
+            ),
+            connections = listOf(com.example.model.SmartArtConnection("c1", "n1", "n2", "hierChild"))
+        )
+
+        val chart = com.example.model.ChartData(
+            id = "chart_persisted_1",
+            title = "أرباح العام",
+            type = "doughnut",
+            categories = listOf("الربع الأول", "الربع الثاني", "الربع الثالث"),
+            series = listOf(
+                com.example.model.ChartSeries("المبيعات", listOf(120.0, 180.0, 240.0), colorHex = "#10B981")
+            ),
+            legendPosition = "b",
+            numberFormat = "#,##0"
+        )
+
+        val payload = DocumentPayload(
+            bodyHtml = "<p>بداية المستند</p>${com.example.bridge.SmartArtChartUtils.smartArtToHtmlBlock(smartArt)}${com.example.bridge.SmartArtChartUtils.chartToHtmlBlock(chart)}<p>نهاية المستند</p>",
+            smartArts = listOf(smartArt),
+            charts = listOf(chart)
+        )
+
+        val saved = repo.createOrUpdateDocument(null, "مستند بياني", payload, "NEW", 20)
+        val loaded = repo.loadDocumentPayload(saved.id)
+
+        assertEquals(1, loaded.smartArts.size)
+        assertEquals("sa_persisted_1", loaded.smartArts[0].id)
+        assertEquals("هيكل الإدارة", loaded.smartArts[0].title)
+        assertEquals("hierarchy", loaded.smartArts[0].layoutType)
+        assertEquals(2, loaded.smartArts[0].nodes.size)
+        assertEquals("نائب الرئيس", loaded.smartArts[0].nodes[1].text)
+        assertEquals("n1", loaded.smartArts[0].nodes[1].parentId)
+        assertEquals(1, loaded.smartArts[0].connections.size)
+
+        assertEquals(1, loaded.charts.size)
+        assertEquals("chart_persisted_1", loaded.charts[0].id)
+        assertEquals("أرباح العام", loaded.charts[0].title)
+        assertEquals("doughnut", loaded.charts[0].chartType)
+        assertEquals(3, loaded.charts[0].categories.size)
+        assertEquals(240.0, loaded.charts[0].series[0].values[2], 0.01)
+        assertEquals("b", loaded.charts[0].legendPosition)
+
+        repo.deleteDocument(saved.id)
+    }
 }

@@ -128,6 +128,9 @@ fun DynamicToolsPanel(
     onDeleteTableRow: () -> Unit,
     onDeleteTableCol: () -> Unit,
     onMergeTableCells: () -> Unit,
+    onSplitTableCell: () -> Unit = {},
+    onSetTableCellAlignment: (String) -> Unit = {},
+    onSetTableBorderColor: (String) -> Unit = {},
     onSetCellBackground: (String) -> Unit,
     onPickImageGallery: () -> Unit,
     onTakePhotoCamera: () -> Unit,
@@ -169,7 +172,9 @@ fun DynamicToolsPanel(
     onOpenTrackedChangesPanel: () -> Unit = {},
     onOpenStylesDialog: () -> Unit = {},
     onOpenDocPropertiesDialog: () -> Unit = {},
-    onOpenCommentsPanel: () -> Unit = {}
+    onOpenCommentsPanel: () -> Unit = {},
+    onOpenSmartArtDialog: () -> Unit = {},
+    onOpenChartDialog: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -213,6 +218,9 @@ fun DynamicToolsPanel(
                     onDeleteTableRow = onDeleteTableRow,
                     onDeleteTableCol = onDeleteTableCol,
                     onMergeTableCells = onMergeTableCells,
+                    onSplitTableCell = onSplitTableCell,
+                    onSetTableCellAlignment = onSetTableCellAlignment,
+                    onSetTableBorderColor = onSetTableBorderColor,
                     onSetCellBackground = onSetCellBackground,
                     onPickImageGallery = onPickImageGallery,
                     onTakePhotoCamera = onTakePhotoCamera,
@@ -235,7 +243,9 @@ fun DynamicToolsPanel(
                     onOpenNoteDialog = onOpenNoteDialog,
                     onInsertTableOfContents = onInsertTableOfContents,
                     onUpdateTableOfContents = onUpdateTableOfContents,
-                    onRemoveTableOfContents = onRemoveTableOfContents
+                    onRemoveTableOfContents = onRemoveTableOfContents,
+                    onOpenSmartArtDialog = onOpenSmartArtDialog,
+                    onOpenChartDialog = onOpenChartDialog
                 )
                 EditorTab.LAYOUT -> LayoutToolsContent(
                     pageConfig = pageConfig,
@@ -313,10 +323,10 @@ private fun HomeToolsContent(
         "BLOCKQUOTE" to "اقتباس"
     )
     val fonts = listOf(
-        "Amiri", "Cairo", "Tajawal", "Reem Kufi", "Almarai",
-        "Kufi", "El Messiri", "Naskh", "Ruqaa", "Scheherazade", "Lateef", "Changa", "Mada",
-        "Playfair Display", "Merriweather", "Roboto", "Montserrat",
-        "Arial", "Times New Roman", "Georgia", "Courier New", "Tahoma"
+        "Amiri", "Cairo", "Tajawal", "Almarai", "Reem Kufi",
+        "Lalezar", "Lemonada", "Kufam", "Noto Naskh Arabic", "Aref Ruqaa",
+        "Poppins", "Open Sans", "Montserrat", "Roboto", "Playfair Display",
+        "Merriweather", "Arial", "Times New Roman", "Georgia", "Tahoma"
     )
     val sizes = listOf(8, 10, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72)
     val colors = listOf(
@@ -550,6 +560,9 @@ private fun InsertToolsContent(
     onDeleteTableRow: () -> Unit,
     onDeleteTableCol: () -> Unit,
     onMergeTableCells: () -> Unit,
+    onSplitTableCell: () -> Unit = {},
+    onSetTableCellAlignment: (String) -> Unit = {},
+    onSetTableBorderColor: (String) -> Unit = {},
     onSetCellBackground: (String) -> Unit,
     onPickImageGallery: () -> Unit,
     onTakePhotoCamera: () -> Unit,
@@ -572,7 +585,9 @@ private fun InsertToolsContent(
     onOpenNoteDialog: () -> Unit,
     onInsertTableOfContents: () -> Unit,
     onUpdateTableOfContents: () -> Unit,
-    onRemoveTableOfContents: () -> Unit
+    onRemoveTableOfContents: () -> Unit,
+    onOpenSmartArtDialog: () -> Unit = {},
+    onOpenChartDialog: () -> Unit = {}
 ) {
     var shapesMenuExpanded by remember { mutableStateOf(false) }
     var stampsMenuExpanded by remember { mutableStateOf(false) }
@@ -593,6 +608,8 @@ private fun InsertToolsContent(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             ActionChipButton(Icons.Default.GridOn, "جدول", onOpenTableDialog, "insert_table")
+            ActionChipButton(Icons.Default.Category, "SmartArt", onOpenSmartArtDialog, "insert_smartart")
+            ActionChipButton(Icons.Default.GridOn, "مخطط بياني", onOpenChartDialog, "insert_chart")
             ActionChipButton(Icons.Default.Image, "صورة", onPickImageGallery, "insert_image")
             ActionChipButton(Icons.Default.CameraAlt, "كاميرا", onTakePhotoCamera, "insert_camera")
 
@@ -665,6 +682,11 @@ private fun InsertToolsContent(
                 ActionChipButton(Icons.Default.RemoveCircleOutline, "- صف", onDeleteTableRow)
                 ActionChipButton(Icons.Default.RemoveCircleOutline, "- عمود", onDeleteTableCol)
                 ActionChipButton(Icons.AutoMirrored.Filled.MergeType, "دمج", onMergeTableCells)
+                ActionChipButton(Icons.Default.GridOn, "تقسيم", onSplitTableCell)
+                ActionChipButton(Icons.AutoMirrored.Filled.FormatAlignRight, "يمين", { onSetTableCellAlignment("right") })
+                ActionChipButton(Icons.Default.FormatAlignCenter, "وسط", { onSetTableCellAlignment("center") })
+                ActionChipButton(Icons.AutoMirrored.Filled.FormatAlignLeft, "يسار", { onSetTableCellAlignment("left") })
+                ActionChipButton(Icons.Default.Category, "إطار", { onSetTableBorderColor("#3B82F6") })
                 ActionChipButton(Icons.Default.FormatColorFill, "تظليل", { onSetCellBackground("#DBEAFE") })
             }
         }

@@ -1,6 +1,6 @@
 {
-  "name": "REMOOFFICE محرر",
-  "description": "محرر مستندات ونصوص متطور متكامل مع دعم ملفات Word (.docx) وتنسيق الصفحات",
+  "name": "RemoOffice",
+  "description": "تطبيق محرر المستندات والنصوص RemoOffice لكتابة وتنسيق المستندات",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

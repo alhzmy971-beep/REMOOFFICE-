@@ -16,7 +16,7 @@ object HtmlSanitizer {
             "div", "span", "a", "img", "mark",
             "svg", "rect", "circle", "line", "polygon", "path"
         )
-        .addAttributes(":all", "style", "class", "dir", "align", "id")
+        .addAttributes(":all", "style", "class", "dir", "align", "id", "data-smartart-id", "data-smartart-json", "data-chart-id", "data-chart-json", "data-anchor-id")
         .addAttributes("a", "href", "target", "rel")
         .addAttributes("img", "src", "alt", "width", "height")
         .addAttributes("td", "colspan", "rowspan")

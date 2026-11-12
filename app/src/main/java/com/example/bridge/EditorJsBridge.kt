@@ -44,6 +44,10 @@ class EditorJsBridge(
                 isNumberList = obj.optBoolean("isNumberList", false),
                 inTable = obj.optBoolean("inTable", false),
                 inImage = obj.optBoolean("inImage", false),
+                inSmartArt = obj.optBoolean("inSmartArt", false),
+                selectedSmartArtId = obj.optString("selectedSmartArtId", ""),
+                inChart = obj.optBoolean("inChart", false),
+                selectedChartId = obj.optString("selectedChartId", ""),
                 formatPainterActive = obj.optBoolean("formatPainterActive", false),
                 wordCount = obj.optInt("wordCount", 0),
                 charCount = obj.optInt("charCount", 0),
@@ -183,6 +187,11 @@ object EditorCommands {
     fun deleteTableRow(webView: WebView?) = eval(webView, "window.editorApi.deleteTableRow()")
     fun deleteTableCol(webView: WebView?) = eval(webView, "window.editorApi.deleteTableCol()")
     fun mergeTableCells(webView: WebView?) = eval(webView, "window.editorApi.mergeTableCells()")
+    fun splitTableCell(webView: WebView?) = eval(webView, "window.editorApi.splitTableCell()")
+    fun setTableCellAlignment(webView: WebView?, align: String) =
+        eval(webView, "window.editorApi.setTableCellAlignment('$align')")
+    fun setTableBorderColor(webView: WebView?, hex: String) =
+        eval(webView, "window.editorApi.setTableBorderColor('$hex')")
     fun setCellBackground(webView: WebView?, hex: String) =
         eval(webView, "window.editorApi.setCellBackground('$hex')")
 
@@ -435,5 +444,36 @@ object EditorCommands {
         }.toString()
         val escaped = JSONObject.quote(json)
         eval(webView, "window.editorApi.scrollToAnchor($escaped)")
+    }
+
+    // --- SmartArt & Chart Commands ---
+    fun insertSmartArt(webView: WebView?, smartArtJson: String) {
+        val escaped = JSONObject.quote(smartArtJson)
+        eval(webView, "window.editorApi.insertSmartArt($escaped)")
+    }
+
+    fun updateSmartArt(webView: WebView?, smartArtJson: String) {
+        val escaped = JSONObject.quote(smartArtJson)
+        eval(webView, "window.editorApi.updateSmartArt($escaped)")
+    }
+
+    fun deleteSmartArt(webView: WebView?, smartArtId: String) {
+        val escaped = JSONObject.quote(smartArtId)
+        eval(webView, "window.editorApi.deleteSmartArt($escaped)")
+    }
+
+    fun insertChart(webView: WebView?, chartJson: String) {
+        val escaped = JSONObject.quote(chartJson)
+        eval(webView, "window.editorApi.insertChart($escaped)")
+    }
+
+    fun updateChart(webView: WebView?, chartJson: String) {
+        val escaped = JSONObject.quote(chartJson)
+        eval(webView, "window.editorApi.updateChart($escaped)")
+    }
+
+    fun deleteChart(webView: WebView?, chartId: String) {
+        val escaped = JSONObject.quote(chartId)
+        eval(webView, "window.editorApi.deleteChart($escaped)")
     }
 }
