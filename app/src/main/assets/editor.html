@@ -296,7 +296,15 @@
   .remoffice-interaction-overlay .column-resize-handle { cursor: ew-resize; height: 18px; border-radius: 3px; }
   .remoffice-interaction-overlay .row-resize-handle { cursor: ns-resize; width: 18px; border-radius: 3px; }
   .remoffice-interaction-overlay .object-move-handle { cursor: move; left: -9px; top: -9px; }
-  .remoffice-interaction-overlay .object-resize-handle { right: -9px; bottom: -9px; }
+  .remoffice-interaction-overlay .object-resize-handle { width: 12px; height: 12px; }
+  .remoffice-interaction-overlay .object-resize-nw { left: -8px; top: -8px; cursor: nwse-resize; }
+  .remoffice-interaction-overlay .object-resize-n { left: 50%; top: -8px; transform: translateX(-50%); cursor: ns-resize; }
+  .remoffice-interaction-overlay .object-resize-ne { right: -8px; top: -8px; cursor: nesw-resize; }
+  .remoffice-interaction-overlay .object-resize-e { right: -8px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+  .remoffice-interaction-overlay .object-resize-se { right: -8px; bottom: -8px; cursor: nwse-resize; }
+  .remoffice-interaction-overlay .object-resize-s { left: 50%; bottom: -8px; transform: translateX(-50%); cursor: ns-resize; }
+  .remoffice-interaction-overlay .object-resize-sw { left: -8px; bottom: -8px; cursor: nesw-resize; }
+  .remoffice-interaction-overlay .object-resize-w { left: -8px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
   .remoffice-interaction-overlay .object-rotate-handle { left: 50%; top: -28px; transform: translateX(-50%); cursor: grab; }
   .remoffice-interaction-overlay .table-resize-handle { right: -9px; bottom: -9px; cursor: nwse-resize; }
   .remoffice-interaction-overlay .table-top-add { left: -15px; top: -15px; }
@@ -2441,9 +2449,9 @@
   function showObjectOverlay(target) {
     interactionOverlay.innerHTML = ''; positionOverlay(target);
     const move = document.createElement('span'); move.className = 'interaction-handle object-move-handle'; move.dataset.action = 'move-object';
-    const resize = document.createElement('span'); resize.className = 'interaction-handle object-resize-handle resize-handle'; resize.dataset.action = 'resize-object';
     const rotate = document.createElement('span'); rotate.className = 'interaction-handle object-rotate-handle'; rotate.dataset.action = 'rotate-object';
-    interactionOverlay.append(move, resize, rotate);
+    const handles = ['nw','n','ne','e','se','s','sw','w'].map(corner => { const h = document.createElement('span'); h.className = 'interaction-handle object-resize-handle object-resize-' + corner; h.dataset.action = 'resize-object'; h.dataset.corner = corner; return h; });
+    interactionOverlay.append(move, rotate, ...handles);
   }
   function showTableOverlay(table) {
     interactionOverlay.innerHTML = ''; positionOverlay(table);
@@ -2458,19 +2466,27 @@
   function selectedTable() { return interactionTarget && interactionTarget.tagName.toLowerCase() === 'table' ? interactionTarget : getClosestTag(lastSelectedCell, 'table'); }
   function insertTableRow(table, index) { if (!table || !table.rows.length) return; const row = table.rows[Math.max(0, Math.min(index, table.rows.length - 1))], copy = row.cloneNode(true); Array.from(copy.cells).forEach(c => { c.innerHTML = '<br>'; c.classList.remove('selected-cell', 'range-selected'); }); row.parentNode.insertBefore(copy, index <= 0 ? row : row.nextSibling); }
   function insertTableColumn(table, index) { if (!table || !table.rows.length) return; Array.from(table.rows).forEach(row => { const c = row.insertCell(Math.max(0, Math.min(index, row.cells.length))); c.innerHTML = '<br>'; }); }
-  function beginInteraction(e, action, target, index) { e.preventDefault(); e.stopPropagation(); const r = target.getBoundingClientRect(); activeInteraction = { action, target, index: Number(index || 0), startX: e.clientX, startY: e.clientY, rect: r, startWidth: r.width, startHeight: r.height }; }
+  function beginInteraction(e, action, target, index, corner) { e.preventDefault(); e.stopPropagation(); const r = target.getBoundingClientRect(); activeInteraction = { action, target, index: Number(index || 0), corner: corner || '', startX: e.clientX, startY: e.clientY, rect: r, startWidth: r.width, startHeight: r.height }; }
   interactionOverlay.addEventListener('pointerdown', e => {
     const c = e.target.closest('[data-action]'); if (!c || !interactionTarget) return; const action = c.dataset.action, table = selectedTable();
     if (action === 'insert-row-before') { insertTableRow(table, lastSelectedCell ? lastSelectedCell.parentNode.rowIndex : 0); notifyContentChanged(); syncInteractionOverlay(); return; }
     if (action === 'insert-row-after') { insertTableRow(table, (lastSelectedCell ? lastSelectedCell.parentNode.rowIndex : (table ? table.rows.length - 1 : 0)) + 1); notifyContentChanged(); syncInteractionOverlay(); return; }
     if (action === 'insert-col-before') { insertTableColumn(table, lastSelectedCell ? lastSelectedCell.cellIndex : 0); notifyContentChanged(); syncInteractionOverlay(); return; }
     if (action === 'insert-col-after') { insertTableColumn(table, (lastSelectedCell ? lastSelectedCell.cellIndex : (table ? table.rows[0].cells.length - 1 : 0)) + 1); notifyContentChanged(); syncInteractionOverlay(); return; }
-    beginInteraction(e, action, interactionTarget, c.dataset.index);
+    beginInteraction(e, action, interactionTarget, c.dataset.index, c.dataset.corner);
   });
   interactionOverlay.addEventListener('pointermove', e => {
     const a = activeInteraction; if (!a) return; const dx = e.clientX - a.startX, dy = e.clientY - a.startY;
     if (a.action === 'move-object' || a.action === 'move-table') { a.target.style.position = 'relative'; a.target.style.left = (parseFloat(a.target.style.left || '0') + dx) + 'px'; a.target.style.top = (parseFloat(a.target.style.top || '0') + dy) + 'px'; a.startX = e.clientX; a.startY = e.clientY; }
-    else if (a.action === 'resize-object') { const w = Math.max(40, a.startWidth + dx), h = Math.max(30, a.startHeight + dy); if (a.target.tagName.toLowerCase() === 'img') { a.target.style.maxWidth = 'none'; a.target.style.width = w + 'px'; } else { a.target.style.width = w + 'px'; a.target.style.height = h + 'px'; } }
+    else if (a.action === 'resize-object') {
+      const corner = a.corner || 'se', horizontal = corner.includes('e') ? dx : corner.includes('w') ? -dx : 0, vertical = corner.includes('s') ? dy : corner.includes('n') ? -dy : 0;
+      let w = Math.max(40, a.startWidth + horizontal), h = Math.max(30, a.startHeight + vertical);
+      if (a.target.tagName.toLowerCase() === 'img' && corner.length === 2) { const ratio = a.startWidth / Math.max(1, a.startHeight); if (Math.abs(horizontal) >= Math.abs(vertical)) h = w / ratio; else w = h * ratio; }
+      if (corner.includes('w')) a.target.style.left = (parseFloat(a.target.style.left || '0') + dx) + 'px';
+      if (corner.includes('n')) a.target.style.top = (parseFloat(a.target.style.top || '0') + dy) + 'px';
+      if (a.target.tagName.toLowerCase() === 'img') { a.target.style.maxWidth = 'none'; a.target.style.width = w + 'px'; a.target.style.height = corner.length === 2 ? 'auto' : h + 'px'; }
+      else { a.target.style.width = w + 'px'; a.target.style.height = h + 'px'; }
+    }
     else if (a.action === 'rotate-object') { const angle = Number(a.target.dataset.remoRotate || 0) + dx * 0.5; a.target.dataset.remoRotate = String(angle); a.target.style.transform = 'rotate(' + angle + 'deg)'; a.startX = e.clientX; }
     else if (a.action === 'resize-table') { a.target.style.width = Math.max(120, a.startWidth + dx) + 'px'; a.target.style.height = Math.max(60, a.startHeight + dy) + 'px'; }
     else if (a.action === 'resize-column') { const cells = Array.from(a.target.rows).map(r => r.cells[a.index]).filter(Boolean), start = cells[0] ? cells[0].getBoundingClientRect().width : 40; cells.forEach(c => c.style.width = Math.max(28, start + dx) + 'px'); }
