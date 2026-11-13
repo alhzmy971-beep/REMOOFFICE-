@@ -117,6 +117,7 @@
     --page-columns: 1;
     --page-bg: #FFFFFF;
     --page-text: #1E293B;
+    --page-border: none;
     --zoom-scale: 1;
   }
 
@@ -147,6 +148,7 @@
     max-width: var(--page-width);
     min-height: var(--page-min-height);
     background-color: var(--page-bg);
+    border: var(--page-border);
     color: var(--page-text);
     box-shadow: 0 4px 20px rgba(15, 23, 42, 0.12), 0 1px 4px rgba(15, 23, 42, 0.08);
     border-radius: 3px;
@@ -307,6 +309,11 @@
   .remoffice-interaction-overlay .object-resize-w { left: -8px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
   .remoffice-interaction-overlay .object-rotate-handle { left: 50%; top: -28px; transform: translateX(-50%); cursor: grab; }
   .remoffice-interaction-overlay .table-resize-handle { right: -9px; bottom: -9px; cursor: nwse-resize; }
+  .remoffice-interaction-overlay .object-arrange-bar { position: absolute; left: 50%; top: -42px; transform: translateX(-50%); display: flex; gap: 2px; white-space: nowrap; }
+  .remoffice-interaction-overlay .object-arrange-bar .interaction-button { position: static; min-width: 28px; height: 26px; padding: 0 5px; }
+  .page-frame-controls { position: absolute; top: 6px; inset-inline-end: 6px; z-index: 20; display: flex; gap: 3px; opacity: .55; }
+  .page-frame-controls:hover, .page-frame-controls:focus-within { opacity: 1; }
+  .page-frame-controls button { border: 1px solid #94A3B8; background: #FFFFFFE8; color: #334155; border-radius: 4px; min-width: 28px; height: 26px; font-size: 12px; }
   .remoffice-interaction-overlay .table-top-add { left: -15px; top: -15px; }
   .remoffice-interaction-overlay .table-bottom-add { right: -15px; bottom: -15px; }
   .remoffice-interaction-overlay .table-left-add { left: -15px; bottom: -15px; }
@@ -325,9 +332,10 @@
   }
 
   .page img.selected-img {
-    outline: 2.5px solid #1A56DB;
+    outline: 2px solid #2563EB;
     outline-offset: 2px;
   }
+  .page .multi-selected-object { outline: 2px solid #7C3AED; outline-offset: 3px; }
 
   .page a {
     color: #1A56DB;
@@ -461,6 +469,12 @@
 <body>
 <div class="workspace">
   <div id="pageContainer" class="page-container">
+    <div id="pageFrameControls" class="page-frame-controls" aria-label="إطار الصفحة">
+      <button type="button" data-frame="solid" title="إطار الصفحة">▣</button>
+      <button type="button" data-frame="double" title="إطار مزدوج">▤</button>
+      <button type="button" data-frame="dashed" title="إطار متقطع">┄</button>
+      <button type="button" data-frame="none" title="إزالة الإطار">×</button>
+    </div>
     <div id="pageHeader" class="page-header" contenteditable="true"></div>
     <div id="editor" class="page" contenteditable="true" spellcheck="true">
       <p>مرحباً بك في <b>REMOOFFICE محرر</b> — محرر المستندات الاحترافي المتكامل.</p>
@@ -2432,11 +2446,24 @@
 
   // --- Touch-friendly object and table controls ---
   const interactionOverlay = document.getElementById('interactionOverlay');
+  const pageFrameControls = document.getElementById('pageFrameControls');
   let interactionTarget = null;
+  let selectedObjects = [];
+  let multiSelectMode = false;
   let tableDrag = null;
   let activeInteraction = null;
   function interactionTargetFor(node) { return getClosestSelector(node, 'img, .shape-block, .text-box, .smartart-block, .chart-block'); }
   function clearRangeSelection() { editor.querySelectorAll('td.range-selected, th.range-selected').forEach(c => c.classList.remove('range-selected')); }
+  function setObjectSelected(node, selected) { if (!node) return; node.classList.toggle('multi-selected-object', selected); }
+  function setObjectSelection(nodes) { selectedObjects.forEach(n => setObjectSelected(n, false)); selectedObjects = nodes.filter(n => n && n.isConnected); selectedObjects.forEach(n => setObjectSelected(n, true)); interactionTarget = selectedObjects[0] || null; }
+  function objectGroupRect() { const rs = selectedObjects.map(n => n.getBoundingClientRect()); if (!rs.length) return null; const left = Math.min(...rs.map(r => r.left)), top = Math.min(...rs.map(r => r.top)), right = Math.max(...rs.map(r => r.right)), bottom = Math.max(...rs.map(r => r.bottom)); return { left, top, right, bottom, width: right - left, height: bottom - top }; }
+  function selectedObjectNodes() { return selectedObjects.length ? selectedObjects : (interactionTarget ? [interactionTarget] : []); }
+  function arrangeObjects(action) {
+    const nodes = selectedObjectNodes(); if (!nodes.length) return;
+    nodes.forEach(node => { const parent = node.parentNode; if (!parent) return; if (action === 'front') parent.appendChild(node); else if (action === 'back') parent.insertBefore(node, parent.firstChild); else if (action === 'forward' && node.nextElementSibling) parent.insertBefore(node.nextElementSibling, node); else if (action === 'backward' && node.previousElementSibling) parent.insertBefore(node, node.previousElementSibling); });
+    notifyContentChanged(); syncInteractionOverlay();
+  }
+  function setPageBorder(style) { document.documentElement.style.setProperty('--page-border', style === 'none' ? 'none' : style + ' 1.5px #94A3B8'); try { localStorage.setItem('remoffice-page-border', style); } catch (e) {} }
   function pageRect(rect) { const b = pageContainer.getBoundingClientRect(); return { left: rect.left - b.left, top: rect.top - b.top, width: rect.width, height: rect.height }; }
   function makeButton(cls, text, action) { const b = document.createElement('button'); b.type = 'button'; b.className = 'interaction-button ' + cls; b.textContent = text; b.dataset.action = action; return b; }
   function positionOverlay(target) {
@@ -2447,11 +2474,15 @@
     interactionOverlay.classList.add('visible');
   }
   function showObjectOverlay(target) {
-    interactionOverlay.innerHTML = ''; positionOverlay(target);
+    interactionOverlay.innerHTML = ''; const group = objectGroupRect();
+    if (group && selectedObjects.length > 1) { const r = pageRect(group); interactionOverlay.style.left = r.left + 'px'; interactionOverlay.style.top = r.top + 'px'; interactionOverlay.style.width = r.width + 'px'; interactionOverlay.style.height = r.height + 'px'; interactionOverlay.classList.add('visible'); }
+    else positionOverlay(target);
     const move = document.createElement('span'); move.className = 'interaction-handle object-move-handle'; move.dataset.action = 'move-object';
     const rotate = document.createElement('span'); rotate.className = 'interaction-handle object-rotate-handle'; rotate.dataset.action = 'rotate-object';
     const handles = ['nw','n','ne','e','se','s','sw','w'].map(corner => { const h = document.createElement('span'); h.className = 'interaction-handle object-resize-handle object-resize-' + corner; h.dataset.action = 'resize-object'; h.dataset.corner = corner; return h; });
-    interactionOverlay.append(move, rotate, ...handles);
+    const arrange = document.createElement('div'); arrange.className = 'object-arrange-bar';
+    [['front','⤒'],['forward','↑'],['backward','↓'],['back','⤓'],['wrap-inline','مع النص'],['wrap-square','مربع'],['multi-select','+ متعدد']].forEach(([action,label]) => arrange.appendChild(makeButton('object-arrange-' + action, label, action)));
+    interactionOverlay.append(move, rotate, ...handles, arrange);
   }
   function showTableOverlay(table) {
     interactionOverlay.innerHTML = ''; positionOverlay(table);
@@ -2466,18 +2497,23 @@
   function selectedTable() { return interactionTarget && interactionTarget.tagName.toLowerCase() === 'table' ? interactionTarget : getClosestTag(lastSelectedCell, 'table'); }
   function insertTableRow(table, index) { if (!table || !table.rows.length) return; const row = table.rows[Math.max(0, Math.min(index, table.rows.length - 1))], copy = row.cloneNode(true); Array.from(copy.cells).forEach(c => { c.innerHTML = '<br>'; c.classList.remove('selected-cell', 'range-selected'); }); row.parentNode.insertBefore(copy, index <= 0 ? row : row.nextSibling); }
   function insertTableColumn(table, index) { if (!table || !table.rows.length) return; Array.from(table.rows).forEach(row => { const c = row.insertCell(Math.max(0, Math.min(index, row.cells.length))); c.innerHTML = '<br>'; }); }
-  function beginInteraction(e, action, target, index, corner) { e.preventDefault(); e.stopPropagation(); const r = target.getBoundingClientRect(); activeInteraction = { action, target, index: Number(index || 0), corner: corner || '', startX: e.clientX, startY: e.clientY, rect: r, startWidth: r.width, startHeight: r.height }; }
+  function beginInteraction(e, action, target, index, corner) { e.preventDefault(); e.stopPropagation(); const r = selectedObjects.length > 1 ? objectGroupRect() : target.getBoundingClientRect(); activeInteraction = { action, target, index: Number(index || 0), corner: corner || '', startX: e.clientX, startY: e.clientY, rect: r, startWidth: r.width, startHeight: r.height, groupRects: selectedObjects.length > 1 ? selectedObjects.map(n => ({ node: n, rect: n.getBoundingClientRect() })) : null }; }
   interactionOverlay.addEventListener('pointerdown', e => {
     const c = e.target.closest('[data-action]'); if (!c || !interactionTarget) return; const action = c.dataset.action, table = selectedTable();
     if (action === 'insert-row-before') { insertTableRow(table, lastSelectedCell ? lastSelectedCell.parentNode.rowIndex : 0); notifyContentChanged(); syncInteractionOverlay(); return; }
     if (action === 'insert-row-after') { insertTableRow(table, (lastSelectedCell ? lastSelectedCell.parentNode.rowIndex : (table ? table.rows.length - 1 : 0)) + 1); notifyContentChanged(); syncInteractionOverlay(); return; }
     if (action === 'insert-col-before') { insertTableColumn(table, lastSelectedCell ? lastSelectedCell.cellIndex : 0); notifyContentChanged(); syncInteractionOverlay(); return; }
     if (action === 'insert-col-after') { insertTableColumn(table, (lastSelectedCell ? lastSelectedCell.cellIndex : (table ? table.rows[0].cells.length - 1 : 0)) + 1); notifyContentChanged(); syncInteractionOverlay(); return; }
+    if (action === 'front' || action === 'forward' || action === 'backward' || action === 'back') { arrangeObjects(action); return; }
+    if (action === 'multi-select') { multiSelectMode = !multiSelectMode; c.textContent = multiSelectMode ? 'تم' : '+ متعدد'; return; }
+    if (action === 'wrap-inline' || action === 'wrap-square') { selectedObjectNodes().forEach(n => { n.style.display = 'inline-block'; n.style.float = action === 'wrap-square' ? 'right' : 'none'; n.style.margin = action === 'wrap-square' ? '8px 0 8px 12px' : '8px 0'; }); notifyContentChanged(); return; }
     beginInteraction(e, action, interactionTarget, c.dataset.index, c.dataset.corner);
   });
   interactionOverlay.addEventListener('pointermove', e => {
     const a = activeInteraction; if (!a) return; const dx = e.clientX - a.startX, dy = e.clientY - a.startY;
-    if (a.action === 'move-object' || a.action === 'move-table') { a.target.style.position = 'relative'; a.target.style.left = (parseFloat(a.target.style.left || '0') + dx) + 'px'; a.target.style.top = (parseFloat(a.target.style.top || '0') + dy) + 'px'; a.startX = e.clientX; a.startY = e.clientY; }
+    if (a.action === 'move-object' && a.groupRects) { a.groupRects.forEach(g => { g.node.style.position = 'relative'; g.node.style.left = (parseFloat(g.node.style.left || '0') + dx) + 'px'; g.node.style.top = (parseFloat(g.node.style.top || '0') + dy) + 'px'; }); a.startX = e.clientX; a.startY = e.clientY; }
+    else if (a.action === 'move-object' || a.action === 'move-table') { a.target.style.position = 'relative'; a.target.style.left = (parseFloat(a.target.style.left || '0') + dx) + 'px'; a.target.style.top = (parseFloat(a.target.style.top || '0') + dy) + 'px'; a.startX = e.clientX; a.startY = e.clientY; }
+    else if (a.action === 'resize-object' && a.groupRects) { const sx = Math.max(.1, (a.startWidth + dx) / a.startWidth), sy = Math.max(.1, (a.startHeight + dy) / a.startHeight); a.groupRects.forEach(g => { const relX = g.rect.left - a.rect.left, relY = g.rect.top - a.rect.top; g.node.style.position = 'relative'; g.node.style.left = (relX * sx - relX) + 'px'; g.node.style.top = (relY * sy - relY) + 'px'; g.node.style.width = Math.max(24, g.rect.width * sx) + 'px'; g.node.style.height = Math.max(24, g.rect.height * sy) + 'px'; }); }
     else if (a.action === 'resize-object') {
       const corner = a.corner || 'se', horizontal = corner.includes('e') ? dx : corner.includes('w') ? -dx : 0, vertical = corner.includes('s') ? dy : corner.includes('n') ? -dy : 0;
       let w = Math.max(40, a.startWidth + horizontal), h = Math.max(30, a.startHeight + vertical);
@@ -2494,10 +2530,12 @@
     positionOverlay(a.target); notifyContentChanged();
   });
   interactionOverlay.addEventListener('pointerup', () => { activeInteraction = null; syncInteractionOverlay(); });
-  editor.addEventListener('pointerdown', e => { const cell = getClosestTag(e.target, 'td') || getClosestTag(e.target, 'th'), object = interactionTargetFor(e.target); if (cell) { if (!tableDrag) tableDrag = { table: getClosestTag(cell, 'table'), start: cell }; interactionTarget = tableDrag.table; clearRangeSelection(); cell.classList.add('range-selected'); return; } if (object) { interactionTarget = object; showObjectOverlay(object); } else { interactionTarget = null; interactionOverlay.classList.remove('visible'); } });
+  editor.addEventListener('pointerdown', e => { const cell = getClosestTag(e.target, 'td') || getClosestTag(e.target, 'th'), object = interactionTargetFor(e.target); if (cell) { if (!tableDrag) tableDrag = { table: getClosestTag(cell, 'table'), start: cell }; interactionTarget = tableDrag.table; clearRangeSelection(); cell.classList.add('range-selected'); return; } if (object) { if (e.shiftKey || multiSelectMode) { const next = selectedObjects.includes(object) ? selectedObjects.filter(n => n !== object) : selectedObjects.concat(object); setObjectSelection(next); } else setObjectSelection([object]); showObjectOverlay(object); } else { setObjectSelection([]); interactionTarget = null; interactionOverlay.classList.remove('visible'); } });
   editor.addEventListener('pointermove', e => { if (!tableDrag) return; const cell = getClosestTag(e.target, 'td') || getClosestTag(e.target, 'th'); if (!cell || getClosestTag(cell, 'table') !== tableDrag.table) return; const sr = tableDrag.start.parentNode.rowIndex, sc = tableDrag.start.cellIndex, er = cell.parentNode.rowIndex, ec = cell.cellIndex, minR = Math.min(sr, er), maxR = Math.max(sr, er), minC = Math.min(sc, ec), maxC = Math.max(sc, ec); clearRangeSelection(); Array.from(tableDrag.table.rows).forEach((row, r) => Array.from(row.cells).forEach((c, col) => { if (r >= minR && r <= maxR && col >= minC && col <= maxC) c.classList.add('range-selected'); })); });
   editor.addEventListener('pointerup', () => { if (tableDrag) { lastSelectedCell = tableDrag.start; tableDrag = null; syncInteractionOverlay(); notifySelectionState(); } });
   editor.addEventListener('click', () => { const sel = window.getSelection(), n = sel && sel.rangeCount ? sel.getRangeAt(0).startContainer : null, cell = getClosestTag(n, 'td') || getClosestTag(n, 'th'), object = interactionTargetFor(n); if (cell) { interactionTarget = getClosestTag(cell, 'table'); syncInteractionOverlay(); } else if (object) { interactionTarget = object; syncInteractionOverlay(); } });
+  pageFrameControls.addEventListener('click', e => { const button = e.target.closest('[data-frame]'); if (button) setPageBorder(button.dataset.frame); });
+  try { setPageBorder(localStorage.getItem('remoffice-page-border') || 'none'); } catch (e) { setPageBorder('none'); }
   window.addEventListener('resize', syncInteractionOverlay); window.addEventListener('scroll', syncInteractionOverlay, true);
   setTimeout(notifySelectionState, 200);
 })();
