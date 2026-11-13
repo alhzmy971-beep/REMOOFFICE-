@@ -1231,13 +1231,8 @@ fun SmartArtDialog(
                     }
                 }
                 Button(onClick = {
-                    // Preserve every field the dialog does not edit (original
-                    // layout/style/colour XML, part names, size, style preset,
-                    // accent colour, connections) so editing a node never
-                    // destroys the imported SmartArt template.
-                    val base = initialSmartArt
-                        ?: com.example.model.SmartArtData(id = "sa_${System.currentTimeMillis()}")
-                    val result = base.copy(
+                    val result = com.example.model.SmartArtData(
+                        id = initialSmartArt?.id ?: "sa_${System.currentTimeMillis()}",
                         title = title.trim(),
                         layoutType = layoutType,
                         primaryColorHex = primaryColorHex,
@@ -1417,12 +1412,8 @@ fun ChartDialog(
                 }
                 Button(onClick = {
                     val cats = categoriesText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                    // Preserve axes / legend / grid / 3D / secondary-axis /
-                    // number-format / size / original XML that this dialog does
-                    // not edit, so updating chart data never loses them.
-                    val base = initialChart
-                        ?: com.example.model.ChartData(id = "chart_${System.currentTimeMillis()}")
-                    val result = base.copy(
+                    val result = com.example.model.ChartData(
+                        id = initialChart?.id ?: "chart_${System.currentTimeMillis()}",
                         title = title.trim(),
                         type = chartType,
                         categories = cats.ifEmpty { listOf("1", "2", "3") },

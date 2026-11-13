@@ -308,26 +308,6 @@ class DocumentRepository(baseDir: File) {
                 chartsArr.put(JSONObject(com.example.bridge.SmartArtChartUtils.chartToJson(chart)))
             }
         }
-        val tablesArr = JSONArray()
-        payload.tables.forEach { t ->
-            runCatching { tablesArr.put(EditorElementJson.tableToJson(t)) }
-        }
-        val imagesArr = JSONArray()
-        payload.images.forEach { i ->
-            runCatching { imagesArr.put(EditorElementJson.imageToJson(i)) }
-        }
-        val shapesArr = JSONArray()
-        payload.shapes.forEach { sh ->
-            runCatching { shapesArr.put(EditorElementJson.shapeToJson(sh)) }
-        }
-        val textBoxesArr = JSONArray()
-        payload.textBoxes.forEach { tb ->
-            runCatching { textBoxesArr.put(EditorElementJson.textBoxToJson(tb)) }
-        }
-        val groupsArr = JSONArray()
-        payload.groups.forEach { g ->
-            runCatching { groupsArr.put(EditorElementJson.groupToJson(g)) }
-        }
         val props = payload.properties
         val propsObj = JSONObject().apply {
             put("author", props.author)
@@ -350,11 +330,6 @@ class DocumentRepository(baseDir: File) {
             put("notes", notesArr)
             put("smartArts", smartArtsArr)
             put("charts", chartsArr)
-            put("tables", tablesArr)
-            put("images", imagesArr)
-            put("shapes", shapesArr)
-            put("textBoxes", textBoxesArr)
-            put("groups", groupsArr)
             put("properties", propsObj)
         }.toString()
     }
@@ -497,37 +472,6 @@ class DocumentRepository(baseDir: File) {
                 }
             }
 
-            val tables = mutableListOf<com.example.model.EditableTable>()
-            obj.optJSONArray("tables")?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    runCatching { tables.add(EditorElementJson.tableFromJson(arr.getJSONObject(i))) }
-                }
-            }
-            val images = mutableListOf<com.example.model.EditableImage>()
-            obj.optJSONArray("images")?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    runCatching { images.add(EditorElementJson.imageFromJson(arr.getJSONObject(i))) }
-                }
-            }
-            val shapes = mutableListOf<com.example.model.EditableShape>()
-            obj.optJSONArray("shapes")?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    runCatching { shapes.add(EditorElementJson.shapeFromJson(arr.getJSONObject(i))) }
-                }
-            }
-            val textBoxes = mutableListOf<com.example.model.EditableTextBox>()
-            obj.optJSONArray("textBoxes")?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    runCatching { textBoxes.add(EditorElementJson.textBoxFromJson(arr.getJSONObject(i))) }
-                }
-            }
-            val groups = mutableListOf<com.example.model.EditableGroup>()
-            obj.optJSONArray("groups")?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    runCatching { groups.add(EditorElementJson.groupFromJson(arr.getJSONObject(i))) }
-                }
-            }
-
             val bodyStr = obj.optString("bodyHtml", "<p><br></p>")
             // Extraction fallback if saved array was empty but body has embedded blocks
             if (smartArts.isEmpty() && bodyStr.contains("data-smartart-json")) {
@@ -546,19 +490,6 @@ class DocumentRepository(baseDir: File) {
                         val rawJson = java.net.URLDecoder.decode(el.attr("data-chart-json"), "UTF-8")
                         charts.add(com.example.bridge.SmartArtChartUtils.jsonToChart(rawJson))
                     }
-                }
-            }
-
-            // Recovery path: rebuild structured elements from the saved HTML when
-            // the arrays are missing (legacy documents) or partially empty.
-            if (tables.isEmpty() || images.isEmpty() || shapes.isEmpty() || textBoxes.isEmpty()) {
-                runCatching {
-                    val ex = EditorElementJson.extractFromHtml(bodyStr)
-                    if (tables.isEmpty()) tables.addAll(ex.tables)
-                    if (images.isEmpty()) images.addAll(ex.images)
-                    if (shapes.isEmpty()) shapes.addAll(ex.shapes)
-                    if (textBoxes.isEmpty()) textBoxes.addAll(ex.textBoxes)
-                    if (groups.isEmpty()) groups.addAll(ex.groups)
                 }
             }
 
@@ -585,11 +516,6 @@ class DocumentRepository(baseDir: File) {
                 notes = notes,
                 smartArts = smartArts,
                 charts = charts,
-                tables = tables,
-                images = images,
-                shapes = shapes,
-                textBoxes = textBoxes,
-                groups = groups,
                 properties = properties
             )
         } catch (_: Exception) {

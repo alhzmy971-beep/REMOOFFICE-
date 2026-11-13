@@ -53,9 +53,6 @@ object SmartArtChartUtils {
             data.layoutPartName?.let { put("layoutPartName", it) }
             data.stylePartName?.let { put("stylePartName", it) }
             data.colorPartName?.let { put("colorPartName", it) }
-            data.originalLayoutXml?.let { put("originalLayoutXml", it) }
-            data.originalStyleXml?.let { put("originalStyleXml", it) }
-            data.originalColorsXml?.let { put("originalColorsXml", it) }
 
             val nodesArr = JSONArray()
             data.nodes.forEach { node ->
@@ -149,9 +146,6 @@ object SmartArtChartUtils {
             layoutPartName = obj.optString("layoutPartName").ifBlank { null },
             stylePartName = obj.optString("stylePartName").ifBlank { null },
             colorPartName = obj.optString("colorPartName").ifBlank { null },
-            originalLayoutXml = obj.optString("originalLayoutXml").ifBlank { null },
-            originalStyleXml = obj.optString("originalStyleXml").ifBlank { null },
-            originalColorsXml = obj.optString("originalColorsXml").ifBlank { null },
             connections = connList
         )
     }

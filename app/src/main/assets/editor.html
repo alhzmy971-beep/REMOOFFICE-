@@ -387,7 +387,6 @@
     .page-break::after { content: ""; }
   }
 </style>
-<link rel="stylesheet" href="editor_advanced.css" />
 </head>
 <body>
 <div class="workspace">
@@ -543,33 +542,8 @@
     } catch (e) {}
   }
 
-  function refreshDynamicFields() {
-    try {
-      var breaks = Array.prototype.slice.call(editor.querySelectorAll('.page-break'));
-      var total = totalPageCount();
-      editor.querySelectorAll('[data-field="PAGE"]').forEach(function (el) {
-        // Use the same height-aware pagination as the TOC so page numbers are
-        // consistent across explicit page breaks and long flowing content.
-        var pos = computePageNumber(el);
-        var fmt = el.getAttribute('data-format') || 'n';
-        var txt = fmt === 'n-of-N' ? pos + ' / ' + total : String(pos);
-        if (el.textContent !== txt) el.textContent = txt;
-      });
-      editor.querySelectorAll('[data-field="DATE"]').forEach(function (el) {
-        var fmt = el.getAttribute('data-date-format') || 'long';
-        var d = new Date();
-        var txt = fmt === 'short'
-          ? d.toLocaleDateString('ar-EG')
-          : d.toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
-        if (el.textContent !== txt) el.textContent = txt;
-      });
-      refreshTocPageNumbers();
-    } catch (e) {}
-  }
-
   function notifyContentChanged() {
     if (suppressTracking) return;
-    refreshDynamicFields();
     if (window.AndroidBridge && window.AndroidBridge.onContentChanged) {
       const payload = JSON.stringify({
         bodyHtml: editor.innerHTML,
@@ -1135,16 +1109,14 @@
 
     insertPageNumber: () => {
       focusEditor();
-      document.execCommand('insertHTML', false, '<span class="page-number" data-field="PAGE" data-format="n" contenteditable="false">1</span>&nbsp;');
-      refreshDynamicFields();
+      document.execCommand('insertHTML', false, '<span class="page-number" contenteditable="false">1</span>&nbsp;');
       notifyContentChanged();
     },
 
     insertDateTime: () => {
       focusEditor();
       const now = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
-      document.execCommand('insertHTML', false, `<span data-field="DATE" data-date-format="long">${now}</span>&nbsp;`);
-      refreshDynamicFields();
+      document.execCommand('insertHTML', false, `<span>${now}</span>&nbsp;`);
       notifyContentChanged();
     },
 
@@ -1192,44 +1164,13 @@
 
     findAndReplace: (findText, replaceText, replaceAll) => {
       if (!findText) return 0;
-      const replacement = replaceText || '';
-      // Walk text nodes only so markup/attributes (href, class, data-*) are never touched.
-      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
-        acceptNode: (node) => {
-          const p = node.parentNode;
-          if (!p) return NodeFilter.FILTER_REJECT;
-          const tag = p.nodeName;
-          if (tag === 'SCRIPT' || tag === 'STYLE') return NodeFilter.FILTER_REJECT;
-          return NodeFilter.FILTER_ACCEPT;
-        }
-      });
-      const textNodes = [];
-      let n;
-      while ((n = walker.nextNode())) textNodes.push(n);
-      let count = 0;
-      const lowerFind = findText.toLowerCase();
-      for (const node of textNodes) {
-        const text = node.nodeValue || '';
-        const lower = text.toLowerCase();
-        if (lower.indexOf(lowerFind) === -1) continue;
-        if (replaceAll) {
-          let result = '';
-          let i = 0;
-          while (i < text.length) {
-            const idx = lower.indexOf(lowerFind, i);
-            if (idx === -1) { result += text.slice(i); break; }
-            result += text.slice(i, idx) + replacement;
-            i = idx + findText.length;
-            count++;
-          }
-          node.nodeValue = result;
-        } else {
-          const idx = lower.indexOf(lowerFind);
-          node.nodeValue = text.slice(0, idx) + replacement + text.slice(idx + findText.length);
-          count++;
-        }
-      }
+      const html = editor.innerHTML;
+      const escaped = findText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, replaceAll ? 'g' : '');
+      const matches = html.match(new RegExp(escaped, 'g'));
+      const count = matches ? matches.length : 0;
       if (count > 0) {
+        editor.innerHTML = html.replace(regex, replaceText || '');
         notifySelectionState();
         notifyContentChanged();
       }
@@ -1792,70 +1733,6 @@
   }
 
   // --- Table of Contents Implementation ---
-  // Height of one printable page in CSS pixels. Derived from the editor width
-  // (A4 ratio) unless a --page-height variable is provided by the host.
-  function pageHeightPx() {
-    try {
-      const v = parseFloat(getComputedStyle(editor).getPropertyValue('--page-height'));
-      if (v && v > 200) return v;
-    } catch (e) {}
-    const w = editor.clientWidth || 794;
-    return Math.round(w * 297 / 210);
-  }
-
-  // Real page number of an element: explicit .page-break elements plus
-  // measured content height, so long documents paginate correctly.
-  function computePageNumber(el) {
-    try {
-      const pageH = pageHeightPx();
-      const editorRect = editor.getBoundingClientRect();
-      const breaks = Array.prototype.slice.call(editor.querySelectorAll('.page-break'));
-      let breaksBefore = 0;
-      let lastBreakBottom = editorRect.top;
-      breaks.forEach(function (b) {
-        const follows = (b.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-        if (follows) {
-          breaksBefore++;
-          lastBreakBottom = b.getBoundingClientRect().bottom;
-        }
-      });
-      const elRect = el.getBoundingClientRect();
-      const heightOnPage = Math.max(0, elRect.top - lastBreakBottom);
-      const extra = Math.floor(heightOnPage / pageH);
-      return 1 + breaksBefore + extra;
-    } catch (e) {
-      return 1;
-    }
-  }
-
-  function totalPageCount() {
-    try {
-      const pageH = pageHeightPx();
-      const breaks = editor.querySelectorAll('.page-break').length;
-      const h = editor.scrollHeight || editor.clientHeight || pageH;
-      return Math.max(1, 1 + breaks + Math.floor(h / pageH));
-    } catch (e) {
-      return 1;
-    }
-  }
-
-  // Update only the page-number labels of an existing TOC without rebuilding
-  // it, so it can be called on every content change without disturbing focus.
-  function refreshTocPageNumbers() {
-    try {
-      const box = editor.querySelector('#remofficeTocBox');
-      if (!box) return;
-      box.querySelectorAll('[data-toc-page]').forEach(function (span) {
-        const hId = span.getAttribute('data-toc-page');
-        const h = hId ? editor.querySelector('#' + CSS.escape(hId)) : null;
-        if (h) {
-          const p = computePageNumber(h);
-          if (span.textContent !== String(p)) span.textContent = String(p);
-        }
-      });
-    } catch (e) {}
-  }
-
   function insertTableOfContents() {
     removeTableOfContents();
     const headings = editor.querySelectorAll('h1, h2, h3, h4, h5, h6');
@@ -1872,10 +1749,7 @@
       h.id = hId;
       const level = parseInt(h.tagName.substring(1), 10);
       const indent = (level - 1) * 16;
-      const page = computePageNumber(h);
-      html += `<li style="margin-inline-start:${indent}px;margin-bottom:4px;display:flex;align-items:baseline;gap:6px;">` +
-        `<a href="#${hId}" onclick="window.editorApi.goToHeading('${hId}');return false;" style="color:#1A56DB;text-decoration:none;flex:1;">• ${h.textContent}</a>` +
-        `<span data-toc-page="${hId}" style="color:#475569;font-variant-numeric:tabular-nums;">${page}</span></li>`;
+      html += `<li style="margin-inline-start:${indent}px;margin-bottom:4px;"><a href="#${hId}" onclick="window.editorApi.goToHeading('${hId}');return false;" style="color:#1A56DB;text-decoration:none;">• ${h.textContent}</a></li>`;
     });
     html += '</ul>';
     tocBox.innerHTML = html;
@@ -2255,6 +2129,5 @@
   setTimeout(notifySelectionState, 200);
 })();
 </script>
-<script src="editor_advanced.js"></script>
 </body>
 </html>

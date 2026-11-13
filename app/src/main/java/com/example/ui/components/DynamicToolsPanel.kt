@@ -167,8 +167,6 @@ fun DynamicToolsPanel(
     onSelectZoom: (Float) -> Unit,
     onSaveDocx: () -> Unit = {},
     onSharePdf: () -> Unit = {},
-    onShareImagePng: () -> Unit = {},
-    onShareImageJpeg: () -> Unit = {},
     onOpenDocx: () -> Unit = {},
     onRenameDoc: () -> Unit = {},
     onOpenTrackedChangesPanel: () -> Unit = {},
@@ -261,8 +259,6 @@ fun DynamicToolsPanel(
                 EditorTab.FILE -> FileToolsContent(
                     onSaveDocx = onSaveDocx,
                     onSharePdf = onSharePdf,
-                    onShareImagePng = onShareImagePng,
-                    onShareImageJpeg = onShareImageJpeg,
                     onOpenDocx = onOpenDocx,
                     onRenameDoc = onRenameDoc,
                     onOpenDocPropertiesDialog = onOpenDocPropertiesDialog
@@ -811,8 +807,6 @@ private fun LayoutToolsContent(
 private fun FileToolsContent(
     onSaveDocx: () -> Unit,
     onSharePdf: () -> Unit,
-    onShareImagePng: () -> Unit,
-    onShareImageJpeg: () -> Unit,
     onOpenDocx: () -> Unit,
     onRenameDoc: () -> Unit,
     onOpenDocPropertiesDialog: () -> Unit
@@ -827,8 +821,6 @@ private fun FileToolsContent(
     ) {
         ActionChipButton(Icons.Default.GridOn, "حفظ كـ Word (.docx)", onSaveDocx, "file_save_docx")
         ActionChipButton(Icons.Default.Category, "تصدير / طباعة PDF", onSharePdf, "file_export_pdf")
-        ActionChipButton(Icons.Default.Image, "تصدير صورة PNG", onShareImagePng, "file_export_png")
-        ActionChipButton(Icons.Default.Image, "تصدير صورة JPG", onShareImageJpeg, "file_export_jpg")
         ActionChipButton(Icons.Default.Image, "فتح مستند", onOpenDocx, "file_open_doc")
         ActionChipButton(Icons.Default.TextFields, "إعادة تسمية", onRenameDoc, "file_rename_doc")
         ActionChipButton(Icons.Default.Info, "خصائص المستند", onOpenDocPropertiesDialog, "file_doc_properties")

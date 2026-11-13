@@ -237,46 +237,6 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
         activeDocId = saved.id
     }
 
-    fun exportAndSharePdf() {
-        val wv = webViewRef
-        if (wv == null) {
-            viewModel.showMessage("المحرر غير جاهز بعد")
-            return
-        }
-        PdfExporter.exportToPdfFile(context, wv, documentTitle) { result ->
-            result.onSuccess { file ->
-                scope.launch(Dispatchers.Main) {
-                    runCatching { PdfExporter.sharePdf(context, file, documentTitle) }
-                        .onFailure { viewModel.showMessage("تعذر مشاركة PDF: ${it.localizedMessage}") }
-                }
-            }.onFailure { err ->
-                scope.launch(Dispatchers.Main) {
-                    viewModel.showMessage("تعذر إنشاء PDF: ${err.localizedMessage}")
-                }
-            }
-        }
-    }
-
-    fun exportAndShareImage(jpeg: Boolean) {
-        val wv = webViewRef
-        if (wv == null) {
-            viewModel.showMessage("المحرر غير جاهز بعد")
-            return
-        }
-        PdfExporter.exportImageFile(context, wv, documentTitle, jpeg) { result ->
-            result.onSuccess { file ->
-                scope.launch(Dispatchers.Main) {
-                    runCatching { PdfExporter.shareImage(context, file, documentTitle) }
-                        .onFailure { viewModel.showMessage("تعذر مشاركة الصورة: ${it.localizedMessage}") }
-                }
-            }.onFailure { err ->
-                scope.launch(Dispatchers.Main) {
-                    viewModel.showMessage("تعذر إنشاء الصورة: ${err.localizedMessage}")
-                }
-            }
-        }
-    }
-
     // Save DOCX launcher
     val saveDocxLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
@@ -322,10 +282,8 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 bytes[2] == 'D'.code.toByte() &&
                                 bytes[3] == 'F'.code.toByte()
                             if (isPdf || isPdfByHeader) {
-                                val result = PdfImporter.importPdf(context, java.io.ByteArrayInputStream(bytes))
                                 com.example.model.DocumentPayload(
-                                    bodyHtml = result.html,
-                                    importReport = result.report
+                                    bodyHtml = PdfImporter.pdfToHtml(context, java.io.ByteArrayInputStream(bytes))
                                 )
                             } else {
                                 DocxConverter.detectAndLoadDocument(bytes, extension, fileName)
@@ -357,9 +315,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                         importedPayload.footerHtml
                     )
                     viewModel.showMessage("تم استيراد المستند بنجاح")
-                    if (importedPayload.importReport != null &&
-                        (importedPayload.importReport.unsupportedCount > 0 ||
-                            importedPayload.importReport.pageCount > 0)) {
+                    if (importedPayload.importReport != null && importedPayload.importReport.unsupportedCount > 0) {
                         activeImportReport = importedPayload.importReport
                         showImportReportDialog = true
                     }
@@ -375,12 +331,10 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             isOnlineConverting = true
             conversionProgress = 5
             conversionStatusText = "قراءة ملف PDF وتجهيزه..."
-            var tempPdf: java.io.File? = null
-            var docxFile: java.io.File? = null
             try {
                 val fileName = getFileName(context, uri) ?: "مستند.pdf"
                 val cleanTitle = fileName.substringBeforeLast(".")
-                tempPdf = withContext(Dispatchers.IO) {
+                val tempPdf = withContext(Dispatchers.IO) {
                     val file = java.io.File(context.cacheDir, "temp_online_upload_${System.currentTimeMillis()}.pdf")
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         java.io.FileOutputStream(file).use { out -> input.copyTo(out) }
@@ -390,7 +344,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
 
                 val convResult = OnlinePdfToWordService.convertPdfToDocx(
                     context = context,
-                    pdfFile = tempPdf!!,
+                    pdfFile = tempPdf,
                     apiKey = OnlinePdfToWordService.getApiKey(context),
                     onProgress = { pct, status ->
                         conversionProgress = pct
@@ -398,14 +352,17 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     }
                 )
 
+                tempPdf.delete()
+
                 if (convResult.isSuccess) {
-                    docxFile = convResult.getOrThrow()
+                    val docxFile = convResult.getOrThrow()
                     conversionStatusText = "استيراد وتجهيز مستند Word..."
                     val importedPayload = withContext(Dispatchers.IO) {
-                        docxFile!!.inputStream().use { input ->
+                        docxFile.inputStream().use { input ->
                             DocxConverter.docxToPayload(input)
                         }
                     }
+                    docxFile.delete()
 
                     val saved = repository.createOrUpdateDocument(
                         id = null,
@@ -437,12 +394,7 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             } catch (e: Exception) {
                 viewModel.showMessage("خطأ أثناء التحويل: ${e.localizedMessage}")
             } finally {
-                // Guaranteed cleanup of all local temp files on success, failure, or cancel.
-                try { tempPdf?.delete() } catch (_: Exception) {}
-                try { docxFile?.delete() } catch (_: Exception) {}
                 isOnlineConverting = false
-                conversionProgress = 0
-                conversionStatusText = ""
             }
         }
     }
@@ -682,7 +634,11 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 val fileName = "${documentTitle.ifBlank { "Document" }}.docx"
                                 saveDocxLauncher.launch(fileName)
                             },
-                            onSharePdf = { exportAndSharePdf() }
+                            onSharePdf = {
+                                webViewRef?.let { wv ->
+                                    PdfExporter.exportToPdf(context, wv, documentTitle)
+                                }
+                            }
                         )
                     }
                 }
@@ -723,20 +679,12 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                         val extractedCharts = com.example.bridge.SmartArtChartUtils.extractChartsFromHtml(body)
                                         val mergedSmartArts = if (extractedSmartArts.isNotEmpty()) extractedSmartArts else current.smartArts
                                         val mergedCharts = if (extractedCharts.isNotEmpty()) extractedCharts else current.charts
-                                        // Structured elements are extracted from the live HTML so the
-                                        // model can never diverge from what the user sees/edits.
-                                        val elements = com.example.data.EditorElementJson.extractFromHtml(body)
                                         val updatedPayload = current.copy(
                                             bodyHtml = body,
                                             headerHtml = header,
                                             footerHtml = footer,
                                             smartArts = mergedSmartArts,
-                                            charts = mergedCharts,
-                                            tables = elements.tables,
-                                            images = elements.images,
-                                            shapes = elements.shapes,
-                                            textBoxes = elements.textBoxes,
-                                            groups = elements.groups
+                                            charts = mergedCharts
                                         )
                                         viewModel.setDocumentPayload(updatedPayload)
                                         persistPayload(updatedPayload)
@@ -886,9 +834,9 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                                 EditorCommands.setZoom(webViewRef, scale)
                             },
                             onSaveDocx = { saveDocxLauncher.launch("$documentTitle.docx") },
-                            onSharePdf = { exportAndSharePdf() },
-                            onShareImagePng = { exportAndShareImage(jpeg = false) },
-                            onShareImageJpeg = { exportAndShareImage(jpeg = true) },
+                            onSharePdf = {
+                                webViewRef?.let { PdfExporter.exportToPdf(context, it, documentTitle) }
+                            },
                             onOpenDocx = {
                                 importDocumentLauncher.launch(SUPPORTED_DOCUMENT_MIMES)
                             },
@@ -1445,12 +1393,11 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "⚠️ تنبيه خصوصية: بمتابعتك، سيغادر ملف PDF جهازك ويُرفع مؤقتاً عبر الإنترنت إلى خدمة CloudConvert (مزود التحويل) لتحويله إلى مستند Word (DOCX) عالي الدقة مع الحفاظ على التنسيقات والجداول والنصوص.",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
+                        "سيتم رفع ملف PDF مؤقتاً إلى خدمة CloudConvert لتحويله إلى مستند Word (DOCX) عالي الدقة مع الحفاظ على التنسيقات والجداول والنصوص.",
+                        fontSize = 13.sp
                     )
                     Text(
-                        "• لا يتم حفظ الملف بشكل دائم، ويتم حذفه تلقائياً من الخادم فور انتهاء التحويل (أو عند الإلغاء أو حدوث خطأ).",
+                        "• لا يتم حفظ الملف بشكل دائم، ويتم حذفه تلقائياً من الخادم فور انتهاء التحويل.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -1599,26 +1546,6 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                     Text("• الفقرات: ${report.paragraphCount}")
                     Text("• الجداول: ${report.tableCount}")
                     Text("• الصور المدمجة: ${report.imageCount}")
-                    if (report.pageCount > 0) {
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text("معالجة صفحات PDF (صفحة بصفحة):", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("• إجمالي الصفحات: ${report.pageCount}")
-                        Text("• صفحات بنص مباشر: ${report.directTextPages}")
-                        Text("• صفحات عبر OCR: ${report.ocrPages}")
-                        Text("• صفحات فشل OCR: ${report.failedOcrPages}")
-                        Text("• صفحات بقيت كصور: ${report.imageOnlyPages}")
-                        Text("• معدل نجاح الاستخراج: ${(report.ocrSuccessRate * 100).toInt()}%")
-                        if (report.confidence.isNotBlank()) {
-                            Text("• مستوى الثقة: ${report.confidence}")
-                        }
-                        if (report.linkCount > 0) Text("• الروابط: ${report.linkCount}")
-                        if (report.shapeCount > 0) Text("• الأشكال: ${report.shapeCount}")
-                        if (report.failureReasons.isNotEmpty()) {
-                            report.failureReasons.forEach { r ->
-                                Text("⚠️ $r", fontSize = 11.sp, color = Color(0xFFB45309))
-                            }
-                        }
-                    }
                     if (report.smartArtCount > 0) {
                         Text("• عناصر SmartArt: ${report.smartArtCount} (محولة إلى عناصر تفاعلية قابلة للتحرير بالكامل)")
                     }
