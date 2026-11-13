@@ -154,6 +154,7 @@
     display: flex;
     flex-direction: column;
     transition: padding 0.2s ease, max-width 0.2s ease, background-color 0.2s ease;
+    position: relative;
   }
 
   .page-header, .page-footer {
@@ -244,6 +245,65 @@
   .page td.selected-cell {
     outline: 2px solid #1A56DB;
   }
+
+  .page td.range-selected, .page th.range-selected {
+    background: rgba(37, 99, 235, 0.16) !important;
+    outline: 2px solid #2563EB;
+    outline-offset: -2px;
+  }
+
+  .remoffice-interaction-overlay {
+    position: absolute;
+    z-index: 1000;
+    pointer-events: none;
+    border: 2px solid #2563EB;
+    border-radius: 3px;
+    box-sizing: border-box;
+    display: none;
+  }
+  .remoffice-interaction-overlay.visible { display: block; }
+  .remoffice-interaction-overlay .interaction-button,
+  .remoffice-interaction-overlay .interaction-handle {
+    position: absolute;
+    pointer-events: auto;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    box-sizing: border-box;
+  }
+  .remoffice-interaction-overlay .interaction-button {
+    width: 30px;
+    height: 30px;
+    border: 1px solid #64748B;
+    border-radius: 50%;
+    background: #FFFFFF;
+    color: #2563EB;
+    font: bold 23px/25px sans-serif;
+    text-align: center;
+    box-shadow: 0 1px 5px rgba(15, 23, 42, .25);
+  }
+  .remoffice-interaction-overlay .interaction-button:active { background: #DBEAFE; }
+  .remoffice-interaction-overlay .table-move-button { font-size: 17px; line-height: 27px; color: #1D4ED8; cursor: move; }
+  .remoffice-interaction-overlay .interaction-handle {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #FFFFFF;
+    border-radius: 50%;
+    background: #475569;
+    box-shadow: 0 0 0 1px #475569;
+  }
+  .remoffice-interaction-overlay .resize-handle { cursor: nwse-resize; }
+  .remoffice-interaction-overlay .column-resize-handle { cursor: ew-resize; height: 18px; border-radius: 3px; }
+  .remoffice-interaction-overlay .row-resize-handle { cursor: ns-resize; width: 18px; border-radius: 3px; }
+  .remoffice-interaction-overlay .object-move-handle { cursor: move; left: -9px; top: -9px; }
+  .remoffice-interaction-overlay .object-resize-handle { right: -9px; bottom: -9px; }
+  .remoffice-interaction-overlay .table-top-add { left: -15px; top: -15px; }
+  .remoffice-interaction-overlay .table-bottom-add { right: -15px; bottom: -15px; }
+  .remoffice-interaction-overlay .table-left-add { left: -15px; bottom: -15px; }
+  .remoffice-interaction-overlay .table-right-add { right: -15px; top: -15px; }
+  .remoffice-interaction-overlay .table-move-button { right: -15px; top: -15px; }
+  .remoffice-interaction-overlay .table-column-handle { top: -9px; transform: translateX(-50%); }
+  .remoffice-interaction-overlay .table-row-handle { left: -9px; transform: translateY(-50%); }
 
   .page img {
     max-width: 100%;
@@ -403,6 +463,7 @@
       <b>الحواشي الختامية / Endnotes:</b>
     </section>
     <div id="pageFooter" class="page-footer" contenteditable="true"></div>
+    <div id="interactionOverlay" class="remoffice-interaction-overlay" aria-hidden="true"></div>
   </div>
 </div>
 
@@ -2343,6 +2404,63 @@
     }
   }
 
+  // --- Touch-friendly object and table controls ---
+  const interactionOverlay = document.getElementById('interactionOverlay');
+  let interactionTarget = null;
+  let tableDrag = null;
+  let activeInteraction = null;
+  function interactionTargetFor(node) { return getClosestSelector(node, 'img, .shape-block, .text-box, .smartart-block, .chart-block'); }
+  function clearRangeSelection() { editor.querySelectorAll('td.range-selected, th.range-selected').forEach(c => c.classList.remove('range-selected')); }
+  function pageRect(rect) { const b = pageContainer.getBoundingClientRect(); return { left: rect.left - b.left, top: rect.top - b.top, width: rect.width, height: rect.height }; }
+  function makeButton(cls, text, action) { const b = document.createElement('button'); b.type = 'button'; b.className = 'interaction-button ' + cls; b.textContent = text; b.dataset.action = action; return b; }
+  function positionOverlay(target) {
+    if (!target || !target.isConnected) { interactionOverlay.classList.remove('visible'); return; }
+    const r = pageRect(target.getBoundingClientRect());
+    interactionOverlay.style.left = r.left + 'px'; interactionOverlay.style.top = r.top + 'px';
+    interactionOverlay.style.width = Math.max(20, r.width) + 'px'; interactionOverlay.style.height = Math.max(20, r.height) + 'px';
+    interactionOverlay.classList.add('visible');
+  }
+  function showObjectOverlay(target) {
+    interactionOverlay.innerHTML = ''; positionOverlay(target);
+    const move = document.createElement('span'); move.className = 'interaction-handle object-move-handle'; move.dataset.action = 'move-object';
+    const resize = document.createElement('span'); resize.className = 'interaction-handle object-resize-handle resize-handle'; resize.dataset.action = 'resize-object';
+    interactionOverlay.append(move, resize);
+  }
+  function showTableOverlay(table) {
+    interactionOverlay.innerHTML = ''; positionOverlay(table);
+    interactionOverlay.append(makeButton('table-top-add', '+', 'insert-row-before'), makeButton('table-bottom-add', '+', 'insert-row-after'), makeButton('table-left-add', '+', 'insert-col-before'), makeButton('table-right-add', '+', 'insert-col-after'), makeButton('table-move-button', '✥', 'move-table'));
+    const tr = pageRect(table.getBoundingClientRect());
+    const rows = Array.from(table.rows), first = rows[0];
+    if (first) Array.from(first.cells).forEach((cell, i) => { const h = document.createElement('span'), r = pageRect(cell.getBoundingClientRect()); h.className = 'interaction-handle column-resize-handle table-column-handle'; h.style.left = (r.left + r.width - tr.left) + 'px'; h.dataset.action = 'resize-column'; h.dataset.index = String(i); interactionOverlay.appendChild(h); });
+    rows.forEach((row, i) => { const h = document.createElement('span'), r = pageRect(row.getBoundingClientRect()); h.className = 'interaction-handle row-resize-handle table-row-handle'; h.style.top = (r.top + r.height - tr.top) + 'px'; h.dataset.action = 'resize-row'; h.dataset.index = String(i); interactionOverlay.appendChild(h); });
+  }
+  function syncInteractionOverlay() { if (!interactionTarget || !interactionTarget.isConnected) { interactionOverlay.classList.remove('visible'); return; } if (interactionTarget.tagName.toLowerCase() === 'table') showTableOverlay(interactionTarget); else showObjectOverlay(interactionTarget); }
+  function selectedTable() { return interactionTarget && interactionTarget.tagName.toLowerCase() === 'table' ? interactionTarget : getClosestTag(lastSelectedCell, 'table'); }
+  function insertTableRow(table, index) { if (!table || !table.rows.length) return; const row = table.rows[Math.max(0, Math.min(index, table.rows.length - 1))], copy = row.cloneNode(true); Array.from(copy.cells).forEach(c => { c.innerHTML = '<br>'; c.classList.remove('selected-cell', 'range-selected'); }); row.parentNode.insertBefore(copy, index <= 0 ? row : row.nextSibling); }
+  function insertTableColumn(table, index) { if (!table || !table.rows.length) return; Array.from(table.rows).forEach(row => { const c = row.insertCell(Math.max(0, Math.min(index, row.cells.length))); c.innerHTML = '<br>'; }); }
+  function beginInteraction(e, action, target, index) { e.preventDefault(); e.stopPropagation(); const r = target.getBoundingClientRect(); activeInteraction = { action, target, index: Number(index || 0), startX: e.clientX, startY: e.clientY, rect: r, startWidth: r.width, startHeight: r.height }; }
+  interactionOverlay.addEventListener('pointerdown', e => {
+    const c = e.target.closest('[data-action]'); if (!c || !interactionTarget) return; const action = c.dataset.action, table = selectedTable();
+    if (action === 'insert-row-before') { insertTableRow(table, lastSelectedCell ? lastSelectedCell.parentNode.rowIndex : 0); notifyContentChanged(); syncInteractionOverlay(); return; }
+    if (action === 'insert-row-after') { insertTableRow(table, (lastSelectedCell ? lastSelectedCell.parentNode.rowIndex : (table ? table.rows.length - 1 : 0)) + 1); notifyContentChanged(); syncInteractionOverlay(); return; }
+    if (action === 'insert-col-before') { insertTableColumn(table, lastSelectedCell ? lastSelectedCell.cellIndex : 0); notifyContentChanged(); syncInteractionOverlay(); return; }
+    if (action === 'insert-col-after') { insertTableColumn(table, (lastSelectedCell ? lastSelectedCell.cellIndex : (table ? table.rows[0].cells.length - 1 : 0)) + 1); notifyContentChanged(); syncInteractionOverlay(); return; }
+    beginInteraction(e, action, interactionTarget, c.dataset.index);
+  });
+  interactionOverlay.addEventListener('pointermove', e => {
+    const a = activeInteraction; if (!a) return; const dx = e.clientX - a.startX, dy = e.clientY - a.startY;
+    if (a.action === 'move-object' || a.action === 'move-table') { a.target.style.position = 'relative'; a.target.style.left = (parseFloat(a.target.style.left || '0') + dx) + 'px'; a.target.style.top = (parseFloat(a.target.style.top || '0') + dy) + 'px'; a.startX = e.clientX; a.startY = e.clientY; }
+    else if (a.action === 'resize-object') { const w = Math.max(40, a.startWidth + dx), h = Math.max(30, a.startHeight + dy); if (a.target.tagName.toLowerCase() === 'img') { a.target.style.maxWidth = 'none'; a.target.style.width = w + 'px'; } else { a.target.style.width = w + 'px'; a.target.style.height = h + 'px'; } }
+    else if (a.action === 'resize-column') { const cells = Array.from(a.target.rows).map(r => r.cells[a.index]).filter(Boolean), start = cells[0] ? cells[0].getBoundingClientRect().width : 40; cells.forEach(c => c.style.width = Math.max(28, start + dx) + 'px'); }
+    else if (a.action === 'resize-row') { const row = a.target.rows[a.index]; if (row) row.style.height = Math.max(24, row.getBoundingClientRect().height + dy) + 'px'; }
+    positionOverlay(a.target); notifyContentChanged();
+  });
+  interactionOverlay.addEventListener('pointerup', () => { activeInteraction = null; syncInteractionOverlay(); });
+  editor.addEventListener('pointerdown', e => { const cell = getClosestTag(e.target, 'td') || getClosestTag(e.target, 'th'), object = interactionTargetFor(e.target); if (cell) { if (!tableDrag) tableDrag = { table: getClosestTag(cell, 'table'), start: cell }; interactionTarget = tableDrag.table; clearRangeSelection(); cell.classList.add('range-selected'); return; } if (object) { interactionTarget = object; showObjectOverlay(object); } else { interactionTarget = null; interactionOverlay.classList.remove('visible'); } });
+  editor.addEventListener('pointermove', e => { if (!tableDrag) return; const cell = getClosestTag(e.target, 'td') || getClosestTag(e.target, 'th'); if (!cell || getClosestTag(cell, 'table') !== tableDrag.table) return; const sr = tableDrag.start.parentNode.rowIndex, sc = tableDrag.start.cellIndex, er = cell.parentNode.rowIndex, ec = cell.cellIndex, minR = Math.min(sr, er), maxR = Math.max(sr, er), minC = Math.min(sc, ec), maxC = Math.max(sc, ec); clearRangeSelection(); Array.from(tableDrag.table.rows).forEach((row, r) => Array.from(row.cells).forEach((c, col) => { if (r >= minR && r <= maxR && col >= minC && col <= maxC) c.classList.add('range-selected'); })); });
+  editor.addEventListener('pointerup', () => { if (tableDrag) { lastSelectedCell = tableDrag.start; tableDrag = null; syncInteractionOverlay(); notifySelectionState(); } });
+  editor.addEventListener('click', () => { const sel = window.getSelection(), n = sel && sel.rangeCount ? sel.getRangeAt(0).startContainer : null, cell = getClosestTag(n, 'td') || getClosestTag(n, 'th'), object = interactionTargetFor(n); if (cell) { interactionTarget = getClosestTag(cell, 'table'); syncInteractionOverlay(); } else if (object) { interactionTarget = object; syncInteractionOverlay(); } });
+  window.addEventListener('resize', syncInteractionOverlay); window.addEventListener('scroll', syncInteractionOverlay, true);
   setTimeout(notifySelectionState, 200);
 })();
 </script>
