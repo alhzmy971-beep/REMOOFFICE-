@@ -12,14 +12,40 @@ import java.util.zip.ZipInputStream
 
 object OoxmlDiagramChartParser {
 
+    // Resource bounds: reject zip bombs / absurdly large entries.
+    private const val MAX_ENTRY_BYTES = 64L * 1024 * 1024
+    private const val MAX_TOTAL_BYTES = 256L * 1024 * 1024
+
+    /**
+     * Namespace-aware, entity-safe XML parse. Jsoup's XML parser is non-validating
+     * and never fetches external resources; DOCTYPE declarations are stripped
+     * explicitly so a crafted DTD/XXE payload can never be processed.
+     */
+    private fun secureParse(xml: String): org.jsoup.nodes.Document {
+        val cleaned = xml
+            .replace(Regex("(?is)<!DOCTYPE[^>]*>"), "")
+            .replace(Regex("(?is)<!ENTITY[^>]*>"), "")
+        return Jsoup.parse(cleaned, "", Parser.xmlParser())
+    }
+
     fun parseDocxDiagramsAndCharts(docxBytes: ByteArray): Pair<List<SmartArtData>, List<ChartData>> {
         val entries = mutableMapOf<String, ByteArray>()
         runCatching {
             ZipInputStream(ByteArrayInputStream(docxBytes)).use { zis ->
                 var entry = zis.nextEntry
+                var totalBytes = 0L
                 while (entry != null) {
-                    val name = entry.name.replace("\\", "/").trimStart('/')
-                    entries[name] = zis.readBytes()
+                    // Path traversal / absolute path protection.
+                    val rawName = entry.name.replace("\\", "/")
+                    val name = rawName.trimStart('/')
+                    val isUnsafe = rawName.startsWith("/") || name.split('/').any { it == ".." }
+                    if (!isUnsafe && !entry.isDirectory && !entries.containsKey(name)) {
+                        val data = zis.readBytes()
+                        totalBytes += data.size
+                        if (data.size <= MAX_ENTRY_BYTES && totalBytes <= MAX_TOTAL_BYTES) {
+                            entries[name] = data
+                        }
+                    }
                     entry = zis.nextEntry
                 }
             }
@@ -33,7 +59,7 @@ object OoxmlDiagramChartParser {
         val docRels = mutableMapOf<String, String>() // rId -> normalized target
         entries["word/_rels/document.xml.rels"]?.let { relsBytes ->
             runCatching {
-                val relsDoc = Jsoup.parse(String(relsBytes, Charsets.UTF_8), "", Parser.xmlParser())
+                val relsDoc = secureParse(String(relsBytes, Charsets.UTF_8))
                 relsDoc.select("Relationship").forEach { rel ->
                     val id = rel.attr("Id")
                     var target = rel.attr("Target").replace("\\", "/").trimStart('/')
@@ -117,7 +143,7 @@ object OoxmlDiagramChartParser {
         relIdsElement: org.jsoup.nodes.Element?
     ): SmartArtData? {
         return runCatching {
-            val doc = Jsoup.parse(xml, "", Parser.xmlParser())
+            val doc = secureParse(xml)
 
             // Parse connections from dgm:cxnLst to reconstruct true parentId and hierarchy
             val connections = mutableListOf<SmartArtConnection>()
@@ -161,6 +187,8 @@ object OoxmlDiagramChartParser {
             fun calculateLevel(modelId: String, depth: Int = 0): Int {
                 if (depth > 10) return depth
                 val p = parentMap[modelId] ?: return 0
+                // modelId "0" is the document-level point; its children are roots (level 0).
+                if (p == "0") return 0
                 return 1 + calculateLevel(p, depth + 1)
             }
 
@@ -231,6 +259,8 @@ object OoxmlDiagramChartParser {
 
             // Layout type resolution
             val layoutXml = layoutPart?.let { allEntries[it] }?.let { String(it, Charsets.UTF_8) } ?: ""
+            val styleXml = stylePart?.let { allEntries[it] }?.let { String(it, Charsets.UTF_8) } ?: ""
+            val colorXml = colorPart?.let { allEntries[it] }?.let { String(it, Charsets.UTF_8) } ?: ""
             val combined = (xml + " " + layoutXml).lowercase()
             val layoutType = when {
                 combined.contains("hierarchy") || combined.contains("tree") || combined.contains("orgchart") -> "hierarchy"
@@ -256,6 +286,9 @@ object OoxmlDiagramChartParser {
                 layoutPartName = layoutPart,
                 stylePartName = stylePart,
                 colorPartName = colorPart,
+                layoutXml = layoutXml.ifBlank { null },
+                styleXml = styleXml.ifBlank { null },
+                colorXml = colorXml.ifBlank { null },
                 connections = connections
             )
         }.getOrNull()
@@ -263,10 +296,14 @@ object OoxmlDiagramChartParser {
 
     private fun parseChartXml(xml: String, entryName: String): ChartData? {
         return runCatching {
-            val doc = Jsoup.parse(xml, "", Parser.xmlParser())
+            val doc = secureParse(xml)
 
             // Title
-            var title = doc.select("c\\:title, title").select("c\\:v, a\\:t, t, v").text().trim()
+            // Chart title only: ignore axis titles (c:catAx / c:valAx titles).
+            val chartTitleEl = doc.select("c\\:title, title").firstOrNull { el ->
+                el.parents().none { p -> p.tagName().endsWith("catAx") || p.tagName().endsWith("valAx") }
+            }
+            var title = chartTitleEl?.select("c\\:v, a\\:t, t, v")?.text()?.trim() ?: ""
             if (title.isEmpty()) title = "مخطط بياني"
 
             // Chart Type detection
@@ -318,9 +355,9 @@ object OoxmlDiagramChartParser {
                 }
             }
 
-            // Categories
+            // Categories (never derived from scatter xVal)
             val categories = mutableListOf<String>()
-            doc.select("c\\:cat pt, cat pt, c\\:strLit pt, strLit pt, c\\:cat c\\:pt, cat c\\:pt, c\\:xVal pt, xVal pt").forEach { pt ->
+            doc.select("c\\:cat c\\:pt, cat pt, c\\:strLit c\\:pt, strLit pt, cat c\\:pt").forEach { pt ->
                 val v = pt.select("c\\:v, v, a\\:t, t").text().trim()
                 if (v.isNotEmpty() && !categories.contains(v)) {
                     categories.add(v)
@@ -331,13 +368,24 @@ object OoxmlDiagramChartParser {
             val seriesList = mutableListOf<ChartSeries>()
             val serElems = doc.select("c\\:ser, ser")
             val defaultColors = listOf("#1A56DB", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6")
+            val isScatter = chartType == "scatter"
 
             serElems.forEachIndexed { idx, ser ->
                 val serName = ser.select("c\\:tx c\\:v, tx v, c\\:tx a\\:t, tx t").text().trim().ifEmpty { "سلسلة ${idx + 1}" }
-                val valPts = ser.select("c\\:val pt, val pt, c\\:numLit pt, numLit pt, c\\:numLit c\\:pt, numLit c\\:pt, c\\:yVal pt, yVal pt")
+                val valPts = if (isScatter) {
+                    ser.select("c\\:yVal c\\:pt, yVal pt")
+                } else {
+                    ser.select("c\\:val pt, val pt, c\\:numLit pt, numLit pt, c\\:numLit c\\:pt, numLit c\\:pt")
+                }
                 val values = mutableListOf<Double>()
                 valPts.forEach { pt ->
                     pt.select("c\\:v, v, a\\:t, t").text().trim().toDoubleOrNull()?.let { values.add(it) }
+                }
+                val xValues = mutableListOf<Double>()
+                if (isScatter) {
+                    ser.select("c\\:xVal c\\:pt, xVal pt").forEach { pt ->
+                        pt.select("c\\:v, v, a\\:t, t").text().trim().toDoubleOrNull()?.let { xValues.add(it) }
+                    }
                 }
 
                 val explicitColor = ser.select("c\\:spPr a\\:solidFill a\\:srgbClr, spPr solidFill srgbClr").firstOrNull()?.attr("val")?.let { "#$it" }
@@ -347,7 +395,9 @@ object OoxmlDiagramChartParser {
                     ChartSeries(
                         name = serName,
                         values = values,
-                        colorHex = color
+                        colorHex = color,
+                        xValues = xValues,
+                        connectPoints = ser.select("c\\:marker, marker").attr("symbol").isNotBlank()
                     )
                 )
             }
@@ -356,8 +406,19 @@ object OoxmlDiagramChartParser {
             val showLegend = doc.select("c\\:legend, legend").isNotEmpty()
             val legendPos = doc.select("c\\:legend c\\:legendPos, legend legendPos").attr("val").ifBlank { "b" }
             val showGrid = doc.select("c\\:majorGridlines, majorGridlines").isNotEmpty()
-            val xAxisTitle = doc.select("c\\:catAx c\\:title, catAx title").select("c\\:v, a\\:t, t, v").text().trim()
-            val yAxisTitle = doc.select("c\\:valAx c\\:title, valAx title").select("c\\:v, a\\:t, t, v").text().trim()
+            val valAxTitles = doc.select("c\\:valAx, valAx").map { ax ->
+                ax.select("c\\:title, title").select("c\\:v, a\\:t, t, v").text().trim()
+            }
+            val xAxisTitle = if (isScatter) {
+                valAxTitles.getOrNull(0) ?: ""
+            } else {
+                doc.select("c\\:catAx c\\:title, catAx title").select("c\\:v, a\\:t, t, v").text().trim()
+            }
+            val yAxisTitle = if (isScatter) {
+                valAxTitles.getOrNull(1) ?: valAxTitles.getOrNull(0) ?: ""
+            } else {
+                doc.select("c\\:valAx c\\:title, valAx title").select("c\\:v, a\\:t, t, v").text().trim()
+            }
             val secondaryAxis = doc.select("c\\:valAx, valAx").size > 1
             val numberFormat = doc.select("c\\:numFmt, numFmt").attr("formatCode").ifBlank { null }
 

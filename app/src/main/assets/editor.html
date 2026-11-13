@@ -594,7 +594,13 @@
     }
     notifySelectionState();
   });
-  editor.addEventListener('input', function() {
+  editor.addEventListener('input', function(e) {
+    // Inline SmartArt text edits must be committed into the JSON model immediately.
+    const saSpan = e.target && e.target.closest ? e.target.closest('[data-smartart-id]') : null;
+    if (saSpan) {
+      const id = saSpan.getAttribute('data-smartart-id');
+      if (id) commitSmartArtTextEdits(id);
+    }
     notifySelectionState();
     notifyContentChanged();
   });
@@ -1228,6 +1234,16 @@
     insertSmartArt: (smartArtJson) => insertSmartArt(smartArtJson),
     updateSmartArt: (smartArtJson) => updateSmartArt(smartArtJson),
     deleteSmartArt: (smartArtId) => deleteSmartArt(smartArtId),
+    getSmartArt: (smartArtId) => readSmartArtData(smartArtId),
+    commitSmartArtTextEdits: (smartArtId) => commitSmartArtTextEdits(smartArtId),
+    addSmartArtNode: (smartArtId, parentId, level) => addSmartArtNode(smartArtId, parentId, level),
+    deleteSmartArtNode: (smartArtId, nodeId) => deleteSmartArtNode(smartArtId, nodeId),
+    updateSmartArtNode: (smartArtId, nodeId, patchJson) => {
+      let patch = patchJson;
+      if (typeof patchJson === 'string') { try { patch = JSON.parse(patchJson); } catch (e) { patch = null; } }
+      return updateSmartArtNode(smartArtId, nodeId, patch);
+    },
+    moveSmartArtNode: (smartArtId, nodeId, direction) => moveSmartArtNode(smartArtId, nodeId, direction),
     insertChart: (chartJson) => insertChart(chartJson),
     updateChart: (chartJson) => updateChart(chartJson),
     deleteChart: (chartId) => deleteChart(chartId),
@@ -1791,7 +1807,7 @@
         const indent = (node.level || 0) * 24;
         contentHtml += `
           <div class="sa-node sa-hierarchy-node" style="margin-inline-start:${indent}px; border-inline-start: 4px solid ${primaryColor}; background:${bg}; padding:8px 12px; border-radius:4px;">
-            <span class="sa-node-text" style="color:#0F172A; font-weight:bold;">${node.text || 'عقدة'}</span>
+            <span class="sa-node-text" contenteditable="true" data-node-id="${node.id}" style="color:#0F172A; font-weight:bold; outline:none;">${escapeHtml(node.text || 'عقدة')}</span>
           </div>`;
       });
       contentHtml += `</div>`;
@@ -1800,7 +1816,7 @@
       nodes.forEach((node, idx) => {
         contentHtml += `
           <div class="sa-node sa-process-card" style="background:${primaryColor}; color:#FFFFFF; padding:8px 14px; border-radius:6px; font-weight:bold;">
-            ${node.text || ('خطوة ' + (idx+1))}
+            <span class="sa-node-text" contenteditable="true" data-node-id="${node.id}" style="outline:none;">${escapeHtml(node.text || ('خطوة ' + (idx+1)))}</span>
           </div>`;
         if (idx < nodes.length - 1) {
           contentHtml += `<span class="sa-arrow" style="color:${primaryColor}; font-size:16pt; font-weight:bold;">➔</span>`;
@@ -1812,7 +1828,7 @@
       nodes.forEach((node, idx) => {
         contentHtml += `
           <div class="sa-node sa-cycle-card" style="border:2px solid ${primaryColor}; background:${bg}; color:#0F172A; padding:8px 12px; border-radius:20px; font-weight:bold;">
-            ${node.text || ('عنصر ' + (idx+1))}
+            <span class="sa-node-text" contenteditable="true" data-node-id="${node.id}" style="outline:none;">${escapeHtml(node.text || ('عنصر ' + (idx+1)))}</span>
           </div>`;
         if (idx < nodes.length - 1) {
           contentHtml += `<span class="sa-arrow" style="color:${accentColor}; font-weight:bold;">↻</span>`;
@@ -1826,7 +1842,7 @@
         const widthPct = Math.round(35 + (idx / count) * 60);
         contentHtml += `
           <div class="sa-node sa-pyramid-card" style="width:${widthPct}%; background:${primaryColor}; color:#FFFFFF; padding:8px 12px; border-radius:4px; text-align:center; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-            ${node.text || ('مستوى ' + (idx+1))}
+            <span class="sa-node-text" contenteditable="true" data-node-id="${node.id}" style="outline:none;">${escapeHtml(node.text || ('مستوى ' + (idx+1)))}</span>
           </div>`;
       });
       contentHtml += `</div>`;
@@ -1836,7 +1852,7 @@
         const bgChoice = idx % 2 === 0 ? bg : '#E0E7FF';
         contentHtml += `
           <div class="sa-node sa-matrix-card" style="background:${bgChoice}; border-top:3px solid ${primaryColor}; padding:10px; border-radius:6px; min-height:50px;">
-            <div style="font-weight:bold; color:#0F172A;">${node.text || ('قسم ' + (idx+1))}</div>
+            <div style="font-weight:bold; color:#0F172A;"><span class="sa-node-text" contenteditable="true" data-node-id="${node.id}" style="outline:none;">${escapeHtml(node.text || ('قسم ' + (idx+1)))}</span></div>
           </div>`;
       });
       contentHtml += `</div>`;
@@ -1845,7 +1861,7 @@
       nodes.forEach((node, idx) => {
         contentHtml += `
           <div class="sa-node sa-rel-card" style="border:2px dashed ${primaryColor}; background:${bg}; padding:10px 14px; border-radius:10px; font-weight:bold; color:#0F172A;">
-            ${node.text || ('عنصر ' + (idx+1))}
+            <span class="sa-node-text" contenteditable="true" data-node-id="${node.id}" style="outline:none;">${escapeHtml(node.text || ('عنصر ' + (idx+1)))}</span>
           </div>`;
         if (idx < nodes.length - 1) {
           contentHtml += `<span style="color:${accentColor}; font-weight:bold; font-size:16pt;">⟷</span>`;
@@ -1857,19 +1873,31 @@
       nodes.forEach(node => {
         contentHtml += `
           <div class="sa-node sa-grid-card" style="background:${bg}; border-top:3px solid ${primaryColor}; padding:10px; border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-weight:bold; color:#0F172A;">${node.text || ''}</div>
+            <div style="font-weight:bold; color:#0F172A;"><span class="sa-node-text" contenteditable="true" data-node-id="${node.id}" style="outline:none;">${escapeHtml(node.text || '')}</span></div>
           </div>`;
       });
       contentHtml += `</div>`;
     }
 
-    const titleHtml = data.title ? `<div style="font-weight:bold; font-size:12pt; margin-bottom:8px; color:${primaryColor};">${data.title}</div>` : '';
+    const titleHtml = data.title ? `<div class="sa-title" contenteditable="true" style="font-weight:bold; font-size:12pt; margin-bottom:8px; color:${primaryColor}; outline:none;">${escapeHtml(data.title)}</div>` : '';
     const jsonStr = encodeURIComponent(JSON.stringify(data));
 
-    return `<div class="smartart-block" data-smartart-id="${data.id}" data-smartart-json="${jsonStr}" contenteditable="false" style="border:1.5px solid #CBD5E1; border-radius:8px; padding:12px; margin:12px 0; background:#FFFFFF; user-select:none;">
+    return `<div class="smartart-block" data-smartart-id="${data.id}" data-smartart-json="${jsonStr}" contenteditable="false" data-smartart-editable="true" style="border:1.5px solid #CBD5E1; border-radius:8px; padding:12px; margin:12px 0; background:#FFFFFF; user-select:text;">
       ${titleHtml}
       ${contentHtml}
     </div>`;
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function formatTick(v) {
+    if (!isFinite(v)) return '';
+    if (Math.abs(v - Math.round(v)) < 1e-9) return String(Math.round(v));
+    return Number(v.toFixed(2)).toString();
   }
 
   function renderChartHtml(chartObj) {
@@ -1916,7 +1944,71 @@
           svgBody += `<rect x="${bx}" y="${by}" width="${barWidth}" height="${barH}" fill="${color}" rx="3"/>`;
         });
       });
-    } else if (type === 'line' || type === 'area' || type === 'scatter') {
+    } else if (type === 'scatter') {
+      // Real XY scatter: every point is positioned from explicit numeric X/Y values.
+      // X is NEVER inferred from the category index. Series without X data are skipped.
+      const allX = [];
+      const allY = [];
+      seriesList.forEach(s => {
+        const xs = Array.isArray(s.xValues) ? s.xValues : [];
+        const ys = Array.isArray(s.values) ? s.values : [];
+        const n = Math.min(xs.length, ys.length);
+        for (let i = 0; i < n; i++) {
+          const x = Number(xs[i]);
+          const y = Number(ys[i]);
+          if (isFinite(x) && isFinite(y)) { allX.push(x); allY.push(y); }
+        }
+      });
+
+      if (allX.length === 0) {
+        svgBody += `<rect x="10" y="10" width="${width-20}" height="${height-20}" fill="#F8FAFC" rx="8" stroke="#E2E8F0"/>`;
+        svgBody += `<text x="${width/2}" y="${height/2}" font-size="13" text-anchor="middle" fill="#B45309">\u0642\u064a\u0645 X \u063a\u064a\u0631 \u0645\u062a\u0648\u0641\u0631\u0629 \u0644\u0647\u0630\u0627 \u0627\u0644\u0645\u062e\u0637\u0637</text>`;
+      } else {
+        let minX = Math.min.apply(null, allX), maxX = Math.max.apply(null, allX);
+        let minY = Math.min.apply(null, allY), maxY = Math.max.apply(null, allY);
+        if (minX === maxX) { minX -= 1; maxX += 1; }
+        if (minY === maxY) { minY -= 1; maxY += 1; }
+        const padX = (maxX - minX) * 0.08, padY = (maxY - minY) * 0.08;
+        minX -= padX; maxX += padX; minY -= padY; maxY += padY;
+        const plotW = width - padding * 2, plotH = height - padding * 2;
+        const mapX = x => padding + ((x - minX) / (maxX - minX)) * plotW;
+        const mapY = y => height - padding - ((y - minY) / (maxY - minY)) * plotH;
+
+        // Gridlines + tick labels on both numeric axes.
+        for (let g = 0; g <= 4; g++) {
+          const gx = padding + (plotW * g / 4);
+          const gy = padding + (plotH * g / 4);
+          svgBody += `<line x1="${gx}" y1="${padding}" x2="${gx}" y2="${height - padding}" stroke="#F1F5F9" stroke-width="1"/>`;
+          svgBody += `<line x1="${padding}" y1="${gy}" x2="${width - padding}" y2="${gy}" stroke="#F1F5F9" stroke-width="1"/>`;
+          const xv = minX + (maxX - minX) * g / 4;
+          const yv = maxY - (maxY - minY) * g / 4;
+          svgBody += `<text x="${gx}" y="${height - 8}" font-size="9" text-anchor="middle" fill="#64748B">${formatTick(xv)}</text>`;
+          svgBody += `<text x="${padding - 6}" y="${gy + 3}" font-size="9" text-anchor="end" fill="#64748B">${formatTick(yv)}</text>`;
+        }
+        svgBody += `<line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#CBD5E1" stroke-width="1.5"/>`;
+        svgBody += `<line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#CBD5E1" stroke-width="1.5"/>`;
+
+        seriesList.forEach((s, sIdx) => {
+          const color = s.colorHex || defaultColors[sIdx % defaultColors.length];
+          const xs = Array.isArray(s.xValues) ? s.xValues : [];
+          const ys = Array.isArray(s.values) ? s.values : [];
+          const n = Math.min(xs.length, ys.length);
+          const pts = [];
+          for (let i = 0; i < n; i++) {
+            const x = Number(xs[i]), y = Number(ys[i]);
+            if (!isFinite(x) || !isFinite(y)) continue;
+            pts.push([mapX(x), mapY(y)]);
+          }
+          // Points only by default; a connecting line is drawn only when explicitly requested.
+          if (s.connectPoints && pts.length > 1) {
+            svgBody += `<polyline points="${pts.map(p => p[0] + ',' + p[1]).join(' ')}" fill="none" stroke="${color}" stroke-width="1.5" stroke-opacity="0.7"/>`;
+          }
+          pts.forEach(p => {
+            svgBody += `<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="${color}" stroke="#FFFFFF" stroke-width="1"/>`;
+          });
+        });
+      }
+    } else if (type === 'line' || type === 'area') {
       let maxVal = 10;
       seriesList.forEach(s => {
         (s.values || []).forEach(v => { if (v > maxVal) maxVal = v; });
@@ -2082,8 +2174,133 @@
     }
   }
 
-  function deleteSmartArt(smartArtId) {
-    const target = editor.querySelector(`[data-smartart-id="${smartArtId}"]`);
+  // --- Editable SmartArt model (single source of truth = data-smartart-json) ---
+  function readSmartArtData(smartArtId) {
+    const el = editor.querySelector(`[data-smartart-id="${smartArtId}"]`);
+    if (!el) return null;
+    const raw = el.getAttribute('data-smartart-json') || '';
+    try { return raw ? JSON.parse(decodeURIComponent(raw)) : null; } catch (e) { return null; }
+  }
+
+  function writeSmartArtData(smartArtId, data) {
+    if (!data) return;
+    data.userModified = true;
+    const el = editor.querySelector(`[data-smartart-id="${smartArtId}"]`);
+    if (!el) return;
+    el.setAttribute('data-smartart-json', encodeURIComponent(JSON.stringify(data)));
+    const newHtml = renderSmartArtHtml(data);
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = newHtml;
+    const newEl = tempDiv.firstElementChild;
+    el.parentNode.replaceChild(newEl, el);
+    lastSelectedSmartArt = newEl;
+    newEl.classList.add('selected-smartart');
+    notifySelectionState();
+    notifyContentChanged();
+  }
+
+  // Commit inline contenteditable text back into the JSON model so that
+  // DocumentPayload / local storage never keep a stale copy.
+  function commitSmartArtTextEdits(smartArtId) {
+    const el = editor.querySelector(`[data-smartart-id="${smartArtId}"]`);
+    if (!el) return;
+    const data = readSmartArtData(smartArtId);
+    if (!data) return;
+    let changed = false;
+    const titleEl = el.querySelector('.sa-title');
+    if (titleEl) {
+      const t = (titleEl.textContent || '').trim();
+      if (t !== (data.title || '')) { data.title = t; changed = true; }
+    }
+    (data.nodes || []).forEach(node => {
+      const span = el.querySelector(`.sa-node-text[data-node-id="${node.id}"]`);
+      if (span) {
+        const t = (span.textContent || '').trim();
+        if (t !== (node.text || '')) { node.text = t; changed = true; }
+      }
+    });
+    if (changed) {
+      data.userModified = true;
+      el.setAttribute('data-smartart-json', encodeURIComponent(JSON.stringify(data)));
+      notifyContentChanged();
+    }
+  }
+
+  function nextSmartArtNodeId(data) {
+    const used = new Set((data.nodes || []).map(n => String(n.id)));
+    let n = 1;
+    while (used.has(String(n))) n++;
+    return String(n);
+  }
+
+  function addSmartArtNode(smartArtId, parentId, level) {
+    const data = readSmartArtData(smartArtId);
+    if (!data) return null;
+    data.nodes = data.nodes || [];
+    const node = {
+      id: nextSmartArtNodeId(data),
+      text: '\u0639\u0642\u062f\u0629 \u062c\u062f\u064a\u062f\u0629',
+      level: (level === undefined || level === null) ? 0 : Number(level),
+      parentId: parentId ? String(parentId) : null
+    };
+    data.nodes.push(node);
+    writeSmartArtData(smartArtId, data);
+    return node.id;
+  }
+
+  function deleteSmartArtNode(smartArtId, nodeId) {
+    const data = readSmartArtData(smartArtId);
+    if (!data || !Array.isArray(data.nodes)) return false;
+    const target = String(nodeId);
+    const before = data.nodes.length;
+    const removedNode = data.nodes.find(n => String(n.id) === target);
+    data.nodes = data.nodes.filter(n => String(n.id) !== target);
+    if (data.nodes.length === before) return false;
+    // Re-parent orphaned children to the deleted node's parent, keeping a valid tree.
+    data.nodes.forEach(n => {
+      if (String(n.parentId) === target) n.parentId = removedNode && removedNode.parentId ? String(removedNode.parentId) : null;
+    });
+    writeSmartArtData(smartArtId, data);
+    return true;
+  }
+
+  function updateSmartArtNode(smartArtId, nodeId, patch) {
+    const data = readSmartArtData(smartArtId);
+    if (!data || !Array.isArray(data.nodes)) return false;
+    const target = String(nodeId);
+    const node = data.nodes.find(n => String(n.id) === target);
+    if (!node) return false;
+    if (patch && typeof patch === 'object') {
+      if (patch.text !== undefined) node.text = String(patch.text);
+      if (patch.level !== undefined) node.level = Number(patch.level);
+      if (patch.parentId !== undefined) node.parentId = patch.parentId ? String(patch.parentId) : null;
+      if (patch.order !== undefined) {
+        // Move the node within the flat list; parent/level are preserved.
+        const idx = data.nodes.indexOf(node);
+        data.nodes.splice(idx, 1);
+        const targetIdx = Math.max(0, Math.min(data.nodes.length, Number(patch.order)));
+        data.nodes.splice(targetIdx, 0, node);
+      }
+    }
+    writeSmartArtData(smartArtId, data);
+    return true;
+  }
+
+  function moveSmartArtNode(smartArtId, nodeId, direction) {
+    const data = readSmartArtData(smartArtId);
+    if (!data || !Array.isArray(data.nodes)) return false;
+    const idx = data.nodes.findIndex(n => String(n.id) === String(nodeId));
+    if (idx < 0) return false;
+    const swapWith = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapWith < 0 || swapWith >= data.nodes.length) return false;
+    const tmp = data.nodes[idx];
+    data.nodes[idx] = data.nodes[swapWith];
+    data.nodes[swapWith] = tmp;
+    writeSmartArtData(smartArtId, data);
+    return true;
+  }
+
+  function deleteSmartArt(smartArtId) {    const target = editor.querySelector(`[data-smartart-id="${smartArtId}"]`);
     if (target) {
       target.parentNode.removeChild(target);
       lastSelectedSmartArt = null;

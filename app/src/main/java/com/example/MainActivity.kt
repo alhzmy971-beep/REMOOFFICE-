@@ -658,6 +658,22 @@ fun RemoOfficeApp(viewModel: EditorViewModel = viewModel()) {
                             settings.displayZoomControls = false
                             webChromeClient = WebChromeClient()
                             webViewClient = object : WebViewClient() {
+                                // Keep the editor WebView pinned to the bundled local assets.
+                                // Any link that tries to navigate elsewhere is blocked instead of
+                                // silently replacing the document with a remote page.
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView?,
+                                    request: android.webkit.WebResourceRequest?
+                                ): Boolean {
+                                    val url = request?.url?.toString().orEmpty()
+                                    return !url.startsWith("file:///android_asset/")
+                                }
+
+                                @Suppress("DEPRECATION")
+                                override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                                    return !(url ?: "").startsWith("file:///android_asset/")
+                                }
+
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     EditorCommands.setDocumentPayload(
