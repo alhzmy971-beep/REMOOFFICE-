@@ -837,35 +837,37 @@
     },
 
     setFontFamily: (font) => {
-      currentFontFamily = font;
+      const family = String(font || '').trim();
+      if (!family) return;
+      currentFontFamily = family;
       focusEditor();
+      try { if (document.fonts && document.fonts.load) document.fonts.load(`14pt "${family}"`); } catch (e) {}
       let sel = window.getSelection();
       if ((!sel || sel.rangeCount === 0 || sel.isCollapsed) && lastValidSelectionRange) {
-        sel.removeAllRanges();
-        sel.addRange(lastValidSelectionRange);
+        sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(lastValidSelectionRange.cloneRange());
       }
+      const cssFamily = `'${family.replace(/'/g, "\\'")}', sans-serif`;
       if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
-        document.execCommand('fontName', false, font);
-        const fontElements = editor.querySelectorAll('font');
-        fontElements.forEach(el => {
-          const f = el.getAttribute('face');
-          if (f === font || f === `'${font}'` || !f) {
-            el.style.fontFamily = `'${font}', sans-serif`;
-          }
+        document.execCommand('styleWithCSS', false, true);
+        document.execCommand('fontName', false, family);
+        document.execCommand('styleWithCSS', false, false);
+        // Android WebView versions differ: some emit <font face>, others emit inline CSS.
+        editor.querySelectorAll('font[face], font:not([face])').forEach(el => {
+          const face = el.getAttribute('face');
+          if (!face || face.replace(/["']/g, '') === family) el.style.fontFamily = cssFamily;
         });
-      } else {
-        editor.style.fontFamily = `'${font}', sans-serif`;
-        if (sel && sel.rangeCount > 0) {
-          const span = document.createElement('span');
-          span.style.fontFamily = `'${font}', sans-serif`;
-          span.innerHTML = '&#8203;';
-          const range = sel.getRangeAt(0);
-          range.insertNode(span);
-          range.setStart(span.firstChild, 1);
-          range.setEnd(span.firstChild, 1);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
+        editor.querySelectorAll('span[style*="font-family"], [style*="font-family"]').forEach(el => {
+          if (el.contains(sel.anchorNode) || el.contains(sel.focusNode)) el.style.fontFamily = cssFamily;
+        });
+        lastValidSelectionRange = sel.getRangeAt(0).cloneRange();
+      } else if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        const span = document.createElement('span');
+        span.style.fontFamily = cssFamily;
+        span.appendChild(document.createTextNode('\u200B'));
+        range.insertNode(span);
+        range.setStart(span.firstChild, 1); range.setEnd(span.firstChild, 1);
+        sel.removeAllRanges(); sel.addRange(range);
       }
       notifySelectionState();
       notifyContentChanged();
