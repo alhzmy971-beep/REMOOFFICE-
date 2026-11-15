@@ -50,7 +50,11 @@ class DocumentRepository(baseDir: File) {
     val documents: StateFlow<List<SavedDocument>> = _documents.asStateFlow()
 
     init {
-        loadIndex()
+        try {
+            loadIndex()
+        } catch (_: Exception) {
+            _documents.value = emptyList()
+        }
     }
 
     private fun atomicWriteText(target: File, content: String) {
