@@ -23,18 +23,8 @@ class EditorJsBridge(
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    companion object {
-        // Upper bound for a single JS->Kotlin message. The editor only ever sends
-        // the current HTML body / selection state, so anything larger is treated
-        // as malformed or abusive and ignored instead of being parsed.
-        private const val MAX_MESSAGE_CHARS = 8 * 1024 * 1024
-    }
-
-    private fun isOversized(payload: String): Boolean = payload.length > MAX_MESSAGE_CHARS
-
     @JavascriptInterface
     fun onSelectionChanged(json: String) {
-        if (isOversized(json)) return
         try {
             val obj = JSONObject(json)
             val state = EditorSelectionState(
@@ -72,7 +62,6 @@ class EditorJsBridge(
 
     @JavascriptInterface
     fun onContentChanged(jsonPayload: String) {
-        if (isOversized(jsonPayload)) return
         try {
             val obj = JSONObject(jsonPayload)
             val body = obj.optString("bodyHtml", "<p><br></p>")
@@ -86,7 +75,6 @@ class EditorJsBridge(
 
     @JavascriptInterface
     fun onTrackedChange(json: String) {
-        if (isOversized(json)) return
         try {
             val obj = JSONObject(json)
             val anchorObj = obj.optJSONObject("anchor")
@@ -119,7 +107,6 @@ class EditorJsBridge(
 
     @JavascriptInterface
     fun onCommentAnchorCreated(json: String) {
-        if (isOversized(json)) return
         try {
             val obj = JSONObject(json)
             val commentId = obj.optString("commentId", "")

@@ -217,28 +217,47 @@ class CloudConvertPdfProvider(
                 return@withContext Result.failure(Exception("استغرقت عملية التحويل وقتاً أطول من المتوقع."))
             }
 
-            // 4. Download DOCX
-            onProgress(88, "تنزيل ملف Word المحول...")
+            // 4. Download DOCX with resilient retry mechanism against network drops
+            onProgress(88, "تنزيل ملف Word المحول (مع إعادة المحاولة التلقائية عند انقطاع الشبكة)...")
             if (isCancelled) {
                 deleteRemoteFileIfSupported(jobId, cleanKey)
                 return@withContext Result.failure(Exception("تم إلغاء عملية التحويل."))
             }
 
-            val downloadRequest = Request.Builder().url(downloadUrl).get().build()
-            val downloadResp = client.newCall(downloadRequest).execute()
-            if (!downloadResp.isSuccessful) {
-                deleteRemoteFileIfSupported(jobId, cleanKey)
-                return@withContext Result.failure(Exception("تعذر تنزيل الملف المحول (${downloadResp.code})."))
+            var downloadSuccess = false
+            var outputFile: File? = null
+            var lastDownloadException: Exception? = null
+
+            for (attempt in 1..3) {
+                if (isCancelled) break
+                try {
+                    val downloadRequest = Request.Builder().url(downloadUrl).get().build()
+                    val downloadResp = client.newCall(downloadRequest).execute()
+                    if (downloadResp.isSuccessful) {
+                        val body = downloadResp.body
+                        if (body != null) {
+                            val tempFile = File(context.cacheDir, "${pdfFile.nameWithoutExtension}_converted_${System.currentTimeMillis()}.docx")
+                            FileOutputStream(tempFile).use { fos ->
+                                body.byteStream().copyTo(fos)
+                            }
+                            if (isValidDocx(tempFile)) {
+                                outputFile = tempFile
+                                downloadSuccess = true
+                                break
+                            } else {
+                                tempFile.delete()
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    lastDownloadException = e
+                    delay(2000L * attempt)
+                }
             }
 
-            val body = downloadResp.body ?: run {
+            if (!downloadSuccess || outputFile == null) {
                 deleteRemoteFileIfSupported(jobId, cleanKey)
-                return@withContext Result.failure(Exception("استجابة تنزيل فارغة."))
-            }
-
-            val outputFile = File(context.cacheDir, "${pdfFile.nameWithoutExtension}_converted_${System.currentTimeMillis()}.docx")
-            FileOutputStream(outputFile).use { fos ->
-                body.byteStream().copyTo(fos)
+                return@withContext Result.failure(Exception("تعذر تنزيل الملف المحول بعد عدة محاولات بسبب فشل الشبكة: ${lastDownloadException?.localizedMessage ?: "خطأ غير معروف"}"))
             }
 
             // 5. Validate DOCX zip structure

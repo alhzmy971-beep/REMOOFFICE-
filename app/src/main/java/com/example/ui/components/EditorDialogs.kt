@@ -1173,10 +1173,7 @@ fun SmartArtDialog(
                     Text("العقد والأحداث (${nodes.size}):", style = MaterialTheme.typography.titleSmall)
                     TextButton(onClick = {
                         val newId = "node_${System.currentTimeMillis()}"
-                        val rootId = nodes.firstOrNull { it.level == 0 }?.id
-                        nodes = nodes + com.example.model.SmartArtNode(
-                            newId, "عقدة جديدة ${nodes.size + 1}", level = 1, parentId = rootId
-                        )
+                        nodes = nodes + com.example.model.SmartArtNode(newId, "عقدة جديدة ${nodes.size + 1}", level = 1)
                     }) {
                         Text("+ إضافة عقدة", fontSize = 12.sp)
                     }
@@ -1234,27 +1231,14 @@ fun SmartArtDialog(
                     }
                 }
                 Button(onClick = {
-                    val result = if (initialSmartArt != null) {
-                        // Preserve original OOXML parts/relations and flag the edit so the
-                        // exporter regenerates data instead of re-applying stale originalXml.
-                        initialSmartArt.copy(
-                            title = title.trim(),
-                            layoutType = layoutType,
-                            primaryColorHex = primaryColorHex,
-                            direction = dir,
-                            nodes = nodes,
-                            userModified = true
-                        )
-                    } else {
-                        com.example.model.SmartArtData(
-                            id = "sa_${System.currentTimeMillis()}",
-                            title = title.trim(),
-                            layoutType = layoutType,
-                            primaryColorHex = primaryColorHex,
-                            direction = dir,
-                            nodes = nodes
-                        )
-                    }
+                    val result = com.example.model.SmartArtData(
+                        id = initialSmartArt?.id ?: "sa_${System.currentTimeMillis()}",
+                        title = title.trim(),
+                        layoutType = layoutType,
+                        primaryColorHex = primaryColorHex,
+                        direction = dir,
+                        nodes = nodes
+                    )
                     onConfirm(result)
                     onDismiss()
                 }) {
@@ -1411,24 +1395,6 @@ fun ChartDialog(
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
-                            if (chartType == "scatter") {
-                                var xsText by remember(series) {
-                                    mutableStateOf(series.xValues.joinToString(", "))
-                                }
-                                OutlinedTextField(
-                                    value = xsText,
-                                    onValueChange = {
-                                        xsText = it
-                                        val parsedX = it.split(",").mapNotNull { v -> v.trim().toDoubleOrNull() }
-                                        seriesList = seriesList.toMutableList().apply {
-                                            this[idx] = this[idx].copy(xValues = parsedX)
-                                        }
-                                    },
-                                    label = { Text("قيم X الصريحة (مفصولة بفارزة)") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
                         }
                     }
                 }
@@ -1446,24 +1412,13 @@ fun ChartDialog(
                 }
                 Button(onClick = {
                     val cats = categoriesText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                    val result = if (initialChart != null) {
-                        initialChart.copy(
-                            title = title.trim(),
-                            type = chartType,
-                            categories = if (chartType == "scatter") emptyList() else cats,
-                            series = seriesList
-                        )
-                    } else {
-                        com.example.model.ChartData(
-                            id = "chart_${System.currentTimeMillis()}",
-                            title = title.trim(),
-                            type = chartType,
-                            categories = if (chartType == "scatter") emptyList() else cats.ifEmpty { listOf("1", "2", "3") },
-                            series = seriesList,
-                            xAxisLabel = if (chartType == "scatter") "X" else "",
-                            yAxisLabel = if (chartType == "scatter") "Y" else ""
-                        )
-                    }
+                    val result = com.example.model.ChartData(
+                        id = initialChart?.id ?: "chart_${System.currentTimeMillis()}",
+                        title = title.trim(),
+                        type = chartType,
+                        categories = cats.ifEmpty { listOf("1", "2", "3") },
+                        series = seriesList
+                    )
                     onConfirm(result)
                     onDismiss()
                 }) {
