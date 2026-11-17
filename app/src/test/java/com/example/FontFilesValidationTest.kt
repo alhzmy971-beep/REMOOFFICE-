@@ -55,6 +55,7 @@ class FontFilesValidationTest {
         }
 
         assertTrue("يجب أن يدعم setFontFamily حفظ الخط الحالي وعدم العودة للافتراضي", content.contains("currentFontFamily = font"))
-        assertTrue("يجب تطبيق style.fontFamily على العناصر المحددة", content.contains("el.style.fontFamily"))
+        assertTrue("يجب تطبيق الخط المحدد على مقطع النص المختار فعلياً", content.contains("span.style.fontFamily") && content.contains("range.extractContents()"))
+        assertTrue("يجب حفظ خط الكتابة عند موضع المؤشر", content.contains("data-font-caret") && content.contains("lastValidSelectionRange = caret.cloneRange()"))
     }
 }
