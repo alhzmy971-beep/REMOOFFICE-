@@ -184,6 +184,8 @@ object EditorCommands {
 
     fun addTableRow(webView: WebView?) = eval(webView, "window.editorApi.addTableRow()")
     fun addTableCol(webView: WebView?) = eval(webView, "window.editorApi.addTableCol()")
+    fun addTableRowBefore(webView: WebView?) = eval(webView, "window.editorApi.addTableRowBefore()")
+    fun addTableColBefore(webView: WebView?) = eval(webView, "window.editorApi.addTableColBefore()")
     fun deleteTableRow(webView: WebView?) = eval(webView, "window.editorApi.deleteTableRow()")
     fun deleteTableCol(webView: WebView?) = eval(webView, "window.editorApi.deleteTableCol()")
     fun mergeTableCells(webView: WebView?) = eval(webView, "window.editorApi.mergeTableCells()")
@@ -202,6 +204,14 @@ object EditorCommands {
 
     fun resizeImage(webView: WebView?, widthPercent: Int) =
         eval(webView, "window.editorApi.resizeImage($widthPercent)")
+
+    fun moveSelectedObject(webView: WebView?, direction: String) {
+        val escaped = JSONObject.quote(direction)
+        eval(webView, "window.editorApi.moveSelectedObject($escaped)")
+    }
+
+    fun resizeSelectedObject(webView: WebView?, factor: Float) =
+        eval(webView, "window.editorApi.resizeSelectedObject($factor)")
 
     fun alignImage(webView: WebView?, align: String) =
         eval(webView, "window.editorApi.alignImage('$align')")

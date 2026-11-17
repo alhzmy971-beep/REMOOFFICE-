@@ -245,6 +245,34 @@
     outline: 2px solid #1A56DB;
   }
 
+  .page td.range-selected-cell {
+    background-color: rgba(26, 86, 219, 0.16) !important;
+    box-shadow: inset 0 0 0 1px #1A56DB;
+  }
+
+  .page td.table-move-handle {
+    position: relative;
+    cursor: move;
+  }
+  .page td.table-move-handle::before {
+    content: "✥";
+    position: absolute;
+    top: -18px;
+    left: -16px;
+    z-index: 3;
+    width: 22px;
+    height: 22px;
+    border: 1px solid #1A56DB;
+    border-radius: 50%;
+    color: #1A56DB;
+    background: #FFFFFF;
+    text-align: center;
+    line-height: 20px;
+    font-size: 15px;
+    font-weight: bold;
+    touch-action: none;
+  }
+
   .page img {
     max-width: 100%;
     height: auto;
@@ -257,6 +285,25 @@
   .page img.selected-img {
     outline: 2.5px solid #1A56DB;
     outline-offset: 2px;
+  }
+
+  .selected-edit-object {
+    outline: 2px solid #1A56DB !important;
+    outline-offset: 2px;
+    touch-action: none;
+  }
+  .selected-edit-object::after {
+    content: "";
+    position: absolute;
+    right: -7px;
+    bottom: -7px;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #FFFFFF;
+    border-radius: 50%;
+    background: #1A56DB;
+    box-shadow: 0 0 0 1px #1A56DB;
+    pointer-events: none;
   }
 
   .page a {
@@ -418,6 +465,12 @@
   let lastSelectedSmartArt = null;
   let lastSelectedChart = null;
   let copiedFormat = null;
+  let tableDrag = null;
+  let tableResize = null;
+  let tableMove = null;
+  let lastTableSelectionMode = null;
+  let selectedVisualObject = null;
+  let visualGesture = null;
 
   let suppressTracking = false;
   let trackChangesEnabled = false;
@@ -477,7 +530,7 @@
     try {
       const sel = window.getSelection();
       let anchorNode = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).startContainer : null;
-      const cell = getClosestTag(anchorNode, 'td') || getClosestTag(anchorNode, 'th');
+      const cell = getClosestTag(anchorNode, 'td') || getClosestTag(anchorNode, 'th') || lastSelectedCell;
       if (lastSelectedCell && lastSelectedCell !== cell) {
         lastSelectedCell.classList.remove('selected-cell');
       }
@@ -523,7 +576,7 @@
         isBulletList: document.queryCommandState('insertUnorderedList'),
         isNumberList: document.queryCommandState('insertOrderedList'),
         inTable: Boolean(cell),
-        inImage: Boolean(lastSelectedImage),
+        inImage: Boolean(lastSelectedImage || selectedVisualObject),
         inSmartArt: Boolean(lastSelectedSmartArt),
         selectedSmartArtId: lastSelectedSmartArt ? (lastSelectedSmartArt.getAttribute('data-smartart-id') || '') : '',
         inChart: Boolean(lastSelectedChart),
@@ -545,8 +598,17 @@
   function notifyContentChanged() {
     if (suppressTracking) return;
     if (window.AndroidBridge && window.AndroidBridge.onContentChanged) {
+      const cleanEditor = editor.cloneNode(true);
+      cleanEditor.querySelectorAll('.selected-cell, .range-selected-cell, .selected-img, .selected-edit-object, .table-move-handle').forEach(el => {
+        el.classList.remove('selected-cell', 'range-selected-cell', 'selected-img', 'selected-edit-object', 'table-move-handle');
+      });
+      cleanEditor.querySelectorAll('[data-font-caret="true"]').forEach(span => {
+        span.innerHTML = span.innerHTML.replace(/\u200B/g, '');
+        span.removeAttribute('data-font-caret');
+        if (!span.textContent && !span.children.length) span.remove();
+      });
       const payload = JSON.stringify({
-        bodyHtml: editor.innerHTML,
+        bodyHtml: cleanEditor.innerHTML,
         headerHtml: document.getElementById('pageHeader').innerHTML,
         footerHtml: document.getElementById('pageFooter').innerHTML
       });
@@ -554,8 +616,169 @@
     }
   }
 
+  function clearTableRange(table) {
+    if (table) table.querySelectorAll('.range-selected-cell').forEach(c => c.classList.remove('range-selected-cell'));
+  }
+
+  function paintTableRange(table, first, last) {
+    if (!table || !first || !last) return;
+    clearTableRange(table);
+    const r1 = first.parentElement.rowIndex, r2 = last.parentElement.rowIndex;
+    const c1 = first.cellIndex, c2 = last.cellIndex;
+    for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++) {
+      const row = table.rows[r];
+      if (!row) continue;
+      for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) {
+        if (row.cells[c]) row.cells[c].classList.add('range-selected-cell');
+      }
+    }
+  }
+
+  editor.addEventListener('pointerdown', function(e) {
+    const cell = getClosestTag(e.target, 'td') || getClosestTag(e.target, 'th');
+    if (!cell) return;
+    const table = getClosestTag(cell, 'table');
+    const tableRect = table.getBoundingClientRect();
+    if (table.rows[0] && table.rows[0].cells[0] === cell &&
+        e.clientX <= tableRect.left + 26 && e.clientY <= tableRect.top + 26) {
+      tableMove = { table, x: e.clientX, y: e.clientY, active: e.pointerType === 'mouse', timer: null };
+      if (!tableMove.active) tableMove.timer = setTimeout(() => { if (tableMove) tableMove.active = true; }, 280);
+      try { editor.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+      return;
+    }
+    const rect = cell.getBoundingClientRect();
+    const dxR = Math.abs(rect.right - e.clientX), dxL = Math.abs(rect.left - e.clientX);
+    const dyB = Math.abs(rect.bottom - e.clientY), dyT = Math.abs(rect.top - e.clientY);
+    const edge = 12;
+
+    // Dragging an outer cell edge adjusts its entire column or row.
+    if (dxR < edge || dyB < edge) {
+      e.preventDefault();
+      tableResize = { table, cell, axis: dyB < edge ? 'row' : 'col',
+        x: e.clientX, y: e.clientY,
+        width: cell.getBoundingClientRect().width,
+        height: cell.parentElement.getBoundingClientRect().height,
+        col: cell.cellIndex, row: cell.parentElement.rowIndex,
+        sign: 1 };
+      try { editor.setPointerCapture(e.pointerId); } catch (_) {}
+      return;
+    }
+
+    // Tap the top edge to shade a column, or the leading side to shade a row.
+    if (dyT < edge) {
+      clearTableRange(table);
+      Array.from(table.rows).forEach(r => r.cells[cell.cellIndex]?.classList.add('range-selected-cell'));
+      lastSelectedCell = cell;
+      lastTableSelectionMode = 'column';
+      notifySelectionState();
+      return;
+    }
+    if (dxL < edge) {
+      clearTableRange(table);
+      Array.from(cell.parentElement.cells).forEach(c => c.classList.add('range-selected-cell'));
+      lastSelectedCell = cell;
+      lastTableSelectionMode = 'row';
+      notifySelectionState();
+      return;
+    }
+
+    // Long-press and drag across cells to select a rectangular cell range.
+    tableDrag = { table, first: cell, last: cell, x: e.clientX, y: e.clientY,
+      active: false, timer: setTimeout(() => { if (tableDrag) tableDrag.active = true; }, 300) };
+    try { editor.setPointerCapture(e.pointerId); } catch (_) {}
+  }, { passive: false });
+
+  editor.addEventListener('pointermove', function(e) {
+    if (tableMove) {
+      const d = tableMove;
+      const dx = e.clientX - d.x, dy = e.clientY - d.y;
+      if (!d.active && Math.abs(dx) + Math.abs(dy) > 12) {
+        clearTimeout(d.timer);
+        tableMove = null;
+      } else if (d.active) {
+        d.table.style.position = 'relative';
+        d.table.style.left = ((parseFloat(d.table.style.left) || 0) + dx) + 'px';
+        d.table.style.top = ((parseFloat(d.table.style.top) || 0) + dy) + 'px';
+        d.x = e.clientX; d.y = e.clientY;
+        e.preventDefault();
+      }
+      if (tableMove) { d.x = e.clientX; d.y = e.clientY; }
+      return;
+    }
+    if (tableResize) {
+      const d = tableResize;
+      if (d.axis === 'col') {
+        const width = Math.max(32, d.width + (e.clientX - d.x) * d.sign);
+        Array.from(d.table.rows).forEach(r => { if (r.cells[d.col]) r.cells[d.col].style.width = width + 'px'; });
+      } else {
+        const row = d.table.rows[d.row];
+        if (row) row.style.height = Math.max(28, d.height + e.clientY - d.y) + 'px';
+      }
+      e.preventDefault();
+      return;
+    }
+    if (tableDrag && tableDrag.active) {
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      const c = getClosestTag(target, 'td') || getClosestTag(target, 'th');
+      if (c && getClosestTag(c, 'table') === tableDrag.table) {
+        tableDrag.last = c;
+        paintTableRange(tableDrag.table, tableDrag.first, c);
+        e.preventDefault();
+      }
+    }
+  }, { passive: false });
+
+  function endTableDrag() {
+    if (tableMove) { clearTimeout(tableMove.timer); if (tableMove.active) notifyContentChanged(); tableMove = null; }
+    if (tableResize) { lastSelectedCell = tableResize.cell; tableResize = null; notifyContentChanged(); }
+    if (tableDrag) {
+      clearTimeout(tableDrag.timer);
+      if (!tableDrag.active) {
+        clearTableRange(tableDrag.table);
+        lastSelectedCell = tableDrag.first;
+        lastTableSelectionMode = 'cell';
+        tableDrag.first.classList.add('selected-cell');
+      } else {
+        lastSelectedCell = tableDrag.first;
+        const range = document.createRange();
+        range.selectNodeContents(tableDrag.first);
+        range.collapse(true);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      const wasRangeSelection = tableDrag.active;
+      tableDrag = null;
+      if (wasRangeSelection) lastTableSelectionMode = 'range';
+      notifySelectionState();
+    }
+  }
+  editor.addEventListener('pointerup', endTableDrag);
+  editor.addEventListener('pointercancel', endTableDrag);
+
   document.addEventListener('selectionchange', notifySelectionState);
+  function chooseVisualObject(obj) {
+    if (selectedVisualObject && selectedVisualObject !== obj) {
+      selectedVisualObject.classList.remove('selected-edit-object');
+    }
+    selectedVisualObject = obj || null;
+    if (selectedVisualObject) selectedVisualObject.classList.add('selected-edit-object');
+  }
+
   editor.addEventListener('click', function(e) {
+    const clickedCell = getClosestTag(e.target, 'td') || getClosestTag(e.target, 'th');
+    editor.querySelectorAll('.table-move-handle').forEach(el => el.classList.remove('table-move-handle'));
+    if (clickedCell) {
+      if (lastSelectedCell && lastSelectedCell !== clickedCell) lastSelectedCell.classList.remove('selected-cell');
+      lastSelectedCell = clickedCell;
+      const table = getClosestTag(clickedCell, 'table');
+      if (table && table.rows[0] && table.rows[0].cells[0]) table.rows[0].cells[0].classList.add('table-move-handle');
+    } else {
+      editor.querySelectorAll('.selected-cell, .range-selected-cell').forEach(el => el.classList.remove('selected-cell', 'range-selected-cell'));
+      lastSelectedCell = null;
+      lastTableSelectionMode = null;
+    }
     if (lastSelectedImage && lastSelectedImage !== e.target) {
       lastSelectedImage.classList.remove('selected-img');
       lastSelectedImage = null;
@@ -585,8 +808,55 @@
       lastSelectedChart.classList.add('selected-chart');
     }
 
+    const visual = getClosestSelector(e.target, 'img, .shape-block, .text-box, .smartart-block, .chart-block');
+    chooseVisualObject(visual);
+
     notifySelectionState();
   });
+
+  editor.addEventListener('pointerdown', function(e) {
+    const obj = getClosestSelector(e.target, 'img, .shape-block, .text-box, .smartart-block, .chart-block');
+    if (!obj || obj !== selectedVisualObject || obj.closest('td, th')) return;
+    const rect = obj.getBoundingClientRect();
+    const resizeCorner = e.clientX >= rect.right - 26 && e.clientY >= rect.bottom - 26;
+    const nearObjectEdge = e.clientX <= rect.left + 18 || e.clientX >= rect.right - 18 ||
+      e.clientY <= rect.top + 18 || e.clientY >= rect.bottom - 18;
+    if (obj.matches('.text-box') && !resizeCorner && !nearObjectEdge) return;
+    visualGesture = { obj, x: e.clientX, y: e.clientY, width: rect.width, height: rect.height,
+      resizing: resizeCorner, moving: e.pointerType === 'mouse' && !resizeCorner, timer: null };
+    if (!resizeCorner && e.pointerType !== 'mouse') {
+      visualGesture.timer = setTimeout(() => { if (visualGesture) visualGesture.moving = true; }, 320);
+    }
+    try { obj.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  editor.addEventListener('pointermove', function(e) {
+    const g = visualGesture;
+    if (!g) return;
+    const dx = e.clientX - g.x, dy = e.clientY - g.y;
+    if (g.resizing) {
+      g.obj.style.width = Math.max(36, g.width + dx) + 'px';
+      if (!g.obj.matches('img')) g.obj.style.height = Math.max(24, g.height + dy) + 'px';
+      e.preventDefault();
+    } else if (g.moving && (Math.abs(dx) + Math.abs(dy) > 0)) {
+      g.obj.style.position = 'relative';
+      g.obj.style.left = (g.obj.offsetLeft + dx) + 'px';
+      g.obj.style.top = (g.obj.offsetTop + dy) + 'px';
+      g.x = e.clientX; g.y = e.clientY;
+      e.preventDefault();
+    } else {
+      g.x = e.clientX; g.y = e.clientY;
+      const r = g.obj.getBoundingClientRect();
+      g.width = r.width; g.height = r.height;
+    }
+  }, { passive: false });
+  function endVisualGesture() {
+    if (!visualGesture) return;
+    clearTimeout(visualGesture.timer);
+    if (visualGesture.resizing || visualGesture.moving) notifyContentChanged();
+    visualGesture = null;
+  }
+  editor.addEventListener('pointerup', endVisualGesture);
+  editor.addEventListener('pointercancel', endVisualGesture);
   editor.addEventListener('keyup', notifySelectionState);
   editor.addEventListener('mouseup', function() {
     if (copiedFormat) {
@@ -595,6 +865,10 @@
     notifySelectionState();
   });
   editor.addEventListener('input', function() {
+    editor.querySelectorAll('[data-font-caret="true"]').forEach(span => {
+      span.innerHTML = span.innerHTML.replace(/\u200B/g, '');
+      span.removeAttribute('data-font-caret');
+    });
     notifySelectionState();
     notifyContentChanged();
   });
@@ -770,36 +1044,49 @@
     },
 
     setFontFamily: (font) => {
+      if (!font) return;
       currentFontFamily = font;
-      focusEditor();
-      let sel = window.getSelection();
-      if ((!sel || sel.rangeCount === 0 || sel.isCollapsed) && lastValidSelectionRange) {
-        sel.removeAllRanges();
-        sel.addRange(lastValidSelectionRange);
+      const sel = window.getSelection();
+      let range = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+      // Compose controls can take focus before the WebView command arrives.
+      // Restore the most recent editor range instead of applying a font to the
+      // whole page or silently falling back to the browser default.
+      if ((!range || !editor.contains(range.commonAncestorContainer)) && lastValidSelectionRange) {
+        range = lastValidSelectionRange.cloneRange();
       }
-      if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
-        document.execCommand('fontName', false, font);
-        const fontElements = editor.querySelectorAll('font');
-        fontElements.forEach(el => {
-          const f = el.getAttribute('face');
-          if (f === font || f === `'${font}'` || !f) {
-            el.style.fontFamily = `'${font}', sans-serif`;
-          }
-        });
-      } else {
-        editor.style.fontFamily = `'${font}', sans-serif`;
-        if (sel && sel.rangeCount > 0) {
+      focusEditor();
+      if (range && editor.contains(range.commonAncestorContainer)) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+        if (!range.collapsed) {
           const span = document.createElement('span');
           span.style.fontFamily = `'${font}', sans-serif`;
-          span.innerHTML = '&#8203;';
-          const range = sel.getRangeAt(0);
+          span.appendChild(range.extractContents());
           range.insertNode(span);
-          range.setStart(span.firstChild, 1);
-          range.setEnd(span.firstChild, 1);
+          const after = document.createRange();
+          after.selectNodeContents(span);
           sel.removeAllRanges();
-          sel.addRange(range);
+          sel.addRange(after);
+          lastValidSelectionRange = after.cloneRange();
+        } else {
+          const span = document.createElement('span');
+          span.style.fontFamily = `'${font}', sans-serif`;
+          span.setAttribute('data-font-caret', 'true');
+          span.appendChild(document.createTextNode('\u200B'));
+          range.insertNode(span);
+          const caret = document.createRange();
+          caret.setStart(span.firstChild, 1);
+          caret.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(caret);
+          lastValidSelectionRange = caret.cloneRange();
         }
+      } else {
+        // No editor caret has ever been established: make the next insertion
+        // inherit the chosen font, without restyling existing document text.
+        editor.style.fontFamily = `'${font}', sans-serif`;
       }
+      if (document.fonts && document.fonts.load) document.fonts.load(`16px "${font}"`).catch(() => {});
       notifySelectionState();
       notifyContentChanged();
     },
@@ -891,18 +1178,46 @@
       notifyContentChanged();
     },
 
+    addTableRowBefore: () => {
+      const sel = window.getSelection();
+      const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
+      if (!cell) return;
+      const row = cell.parentElement;
+      const clone = row.cloneNode(true);
+      Array.from(clone.cells).forEach(c => { c.innerHTML = '<br>'; c.classList.remove('selected-cell', 'range-selected-cell'); });
+      row.parentElement.insertBefore(clone, row);
+      notifyContentChanged();
+    },
+
+    addTableColBefore: () => {
+      const sel = window.getSelection();
+      const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
+      if (!cell) return;
+      const table = getClosestTag(cell, 'table');
+      if (!table) return;
+      Array.from(table.rows).forEach(row => {
+        const added = row.insertCell(cell.cellIndex);
+        added.innerHTML = '<br>';
+      });
+      notifyContentChanged();
+    },
+
     deleteTableRow: () => {
       const sel = window.getSelection();
       const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
       if (!cell) return;
       const row = cell.parentNode;
       const table = getClosestTag(row, 'table');
-      if (table && table.rows.length > 1) {
-        row.parentNode.removeChild(row);
+      const highlightedRows = table && (lastTableSelectionMode === 'row' || lastTableSelectionMode === 'range')
+        ? Array.from(table.querySelectorAll('.range-selected-cell')).map(c => c.parentElement).filter((r, i, a) => a.indexOf(r) === i)
+        : [row];
+      if (table && table.rows.length > highlightedRows.length) {
+        highlightedRows.sort((a, b) => b.rowIndex - a.rowIndex).forEach(r => r.parentNode.removeChild(r));
       } else if (table) {
         table.parentNode.removeChild(table);
       }
       lastSelectedCell = null;
+      lastTableSelectionMode = null;
       notifySelectionState();
       notifyContentChanged();
     },
@@ -911,17 +1226,19 @@
       const sel = window.getSelection();
       const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
       if (!cell) return;
-      const colIndex = cell.cellIndex;
       const table = getClosestTag(cell, 'table');
       if (!table) return;
-      if (table.rows[0].cells.length <= 1) {
+      const highlightedCols = (lastTableSelectionMode === 'column' || lastTableSelectionMode === 'range')
+        ? Array.from(table.querySelectorAll('.range-selected-cell')).map(c => c.cellIndex).filter((c, i, a) => a.indexOf(c) === i).sort((a, b) => b - a)
+        : [cell.cellIndex];
+      if (!highlightedCols.length) highlightedCols.push(cell.cellIndex);
+      if (table.rows[0].cells.length <= highlightedCols.length) {
         table.parentNode.removeChild(table);
       } else {
-        Array.from(table.rows).forEach(r => {
-          if (r.cells[colIndex]) r.deleteCell(colIndex);
-        });
+        Array.from(table.rows).forEach(r => highlightedCols.forEach(index => { if (r.cells[index]) r.deleteCell(index); }));
       }
       lastSelectedCell = null;
+      lastTableSelectionMode = null;
       notifySelectionState();
       notifyContentChanged();
     },
@@ -942,7 +1259,11 @@
     setCellBackground: (hex) => {
       const sel = window.getSelection();
       const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
-      if (cell) {
+      const selected = cell && getClosestTag(cell, 'table').querySelectorAll('.range-selected-cell');
+      if (selected && selected.length) {
+        selected.forEach(c => { c.style.backgroundColor = hex; });
+        notifyContentChanged();
+      } else if (cell) {
         cell.style.backgroundColor = hex;
         notifyContentChanged();
       }
@@ -974,7 +1295,9 @@
       const sel = window.getSelection();
       const cell = getClosestTag(sel && sel.anchorNode, 'td') || lastSelectedCell;
       if (cell) {
-        cell.style.textAlign = align;
+        const selected = getClosestTag(cell, 'table').querySelectorAll('.range-selected-cell');
+        if (selected.length) selected.forEach(c => { c.style.textAlign = align; });
+        else cell.style.textAlign = align;
         notifyContentChanged();
       }
     },
@@ -1003,14 +1326,42 @@
     },
 
     resizeImage: (widthPercent) => {
-      if (!lastSelectedImage) return;
-      lastSelectedImage.style.width = widthPercent + '%';
+      const obj = selectedVisualObject || lastSelectedImage;
+      if (!obj) return;
+      obj.style.width = widthPercent + '%';
+      notifyContentChanged();
+    },
+
+    moveSelectedObject: (direction) => {
+      const obj = selectedVisualObject || lastSelectedImage;
+      if (!obj) return;
+      const delta = 8;
+      const horizontal = direction === 'right' ? delta : direction === 'left' ? -delta : 0;
+      const vertical = direction === 'down' ? delta : direction === 'up' ? -delta : 0;
+      obj.style.position = 'relative';
+      obj.style.left = ((parseFloat(obj.style.left) || 0) + horizontal) + 'px';
+      obj.style.top = ((parseFloat(obj.style.top) || 0) + vertical) + 'px';
+      notifyContentChanged();
+    },
+
+    resizeSelectedObject: (factor) => {
+      const obj = selectedVisualObject || lastSelectedImage;
+      if (!obj) return;
+      const rect = obj.getBoundingClientRect();
+      const nextWidth = Math.max(36, Math.min(editor.clientWidth, rect.width * factor));
+      obj.style.width = nextWidth + 'px';
+      if (obj.matches('img')) obj.style.height = 'auto';
+      else {
+        obj.style.height = Math.max(24, rect.height * factor) + 'px';
+        obj.querySelectorAll('svg').forEach(svg => { svg.style.width = '100%'; svg.style.height = '100%'; });
+      }
       notifyContentChanged();
     },
 
     alignImage: (align) => {
-      if (!lastSelectedImage) return;
-      const parent = lastSelectedImage.parentNode;
+      const obj = selectedVisualObject || lastSelectedImage;
+      if (!obj) return;
+      const parent = obj.parentNode;
       if (parent && parent !== editor) {
         parent.style.textAlign = align;
       }
@@ -1018,29 +1369,33 @@
     },
 
     toggleImageBorder: () => {
-      if (!lastSelectedImage) return;
-      if (lastSelectedImage.style.border) {
-        lastSelectedImage.style.border = '';
+      const obj = selectedVisualObject || lastSelectedImage;
+      if (!obj) return;
+      if (obj.style.border) {
+        obj.style.border = '';
       } else {
-        lastSelectedImage.style.border = '3px solid #1A56DB';
+        obj.style.border = '3px solid #1A56DB';
       }
       notifyContentChanged();
     },
 
     toggleImageRounded: () => {
-      if (!lastSelectedImage) return;
-      if (lastSelectedImage.style.borderRadius === '50%') {
-        lastSelectedImage.style.borderRadius = '4px';
+      const obj = selectedVisualObject || lastSelectedImage;
+      if (!obj) return;
+      if (obj.style.borderRadius === '50%') {
+        obj.style.borderRadius = '4px';
       } else {
-        lastSelectedImage.style.borderRadius = '50%';
+        obj.style.borderRadius = '50%';
       }
       notifyContentChanged();
     },
 
     deleteSelectedImage: () => {
-      if (!lastSelectedImage) return;
-      lastSelectedImage.parentNode.removeChild(lastSelectedImage);
+      const obj = selectedVisualObject || lastSelectedImage;
+      if (!obj) return;
+      obj.parentNode.removeChild(obj);
       lastSelectedImage = null;
+      selectedVisualObject = null;
       notifySelectionState();
       notifyContentChanged();
     },

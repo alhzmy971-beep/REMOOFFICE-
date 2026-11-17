@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Superscript
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -174,7 +175,11 @@ fun DynamicToolsPanel(
     onOpenDocPropertiesDialog: () -> Unit = {},
     onOpenCommentsPanel: () -> Unit = {},
     onOpenSmartArtDialog: () -> Unit = {},
-    onOpenChartDialog: () -> Unit = {}
+    onOpenChartDialog: () -> Unit = {},
+    onAddTableRowBefore: () -> Unit = {},
+    onAddTableColBefore: () -> Unit = {},
+    onMoveSelectedObject: (String) -> Unit = {},
+    onResizeSelectedObject: (Float) -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -245,7 +250,11 @@ fun DynamicToolsPanel(
                     onUpdateTableOfContents = onUpdateTableOfContents,
                     onRemoveTableOfContents = onRemoveTableOfContents,
                     onOpenSmartArtDialog = onOpenSmartArtDialog,
-                    onOpenChartDialog = onOpenChartDialog
+                    onOpenChartDialog = onOpenChartDialog,
+                    onAddTableRowBefore = onAddTableRowBefore,
+                    onAddTableColBefore = onAddTableColBefore,
+                    onMoveSelectedObject = onMoveSelectedObject,
+                    onResizeSelectedObject = onResizeSelectedObject
                 )
                 EditorTab.LAYOUT -> LayoutToolsContent(
                     pageConfig = pageConfig,
@@ -587,7 +596,11 @@ private fun InsertToolsContent(
     onUpdateTableOfContents: () -> Unit,
     onRemoveTableOfContents: () -> Unit,
     onOpenSmartArtDialog: () -> Unit = {},
-    onOpenChartDialog: () -> Unit = {}
+    onOpenChartDialog: () -> Unit = {},
+    onAddTableRowBefore: () -> Unit = {},
+    onAddTableColBefore: () -> Unit = {},
+    onMoveSelectedObject: (String) -> Unit = {},
+    onResizeSelectedObject: (Float) -> Unit = {}
 ) {
     var shapesMenuExpanded by remember { mutableStateOf(false) }
     var stampsMenuExpanded by remember { mutableStateOf(false) }
@@ -677,7 +690,9 @@ private fun InsertToolsContent(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text("أدوات الجدول:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                ActionChipButton(Icons.Default.AddCircleOutline, "صف قبل", onAddTableRowBefore)
                 ActionChipButton(Icons.Default.AddCircleOutline, "+ صف", onAddTableRow)
+                ActionChipButton(Icons.Default.AddCircleOutline, "عمود قبل", onAddTableColBefore)
                 ActionChipButton(Icons.Default.AddCircleOutline, "+ عمود", onAddTableCol)
                 ActionChipButton(Icons.Default.RemoveCircleOutline, "- صف", onDeleteTableRow)
                 ActionChipButton(Icons.Default.RemoveCircleOutline, "- عمود", onDeleteTableCol)
@@ -700,7 +715,13 @@ private fun InsertToolsContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text("تنسيق الصورة:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text("تحريك / تغيير الحجم:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                OutlinedButton(onClick = { onMoveSelectedObject("left") }) { Text("←") }
+                OutlinedButton(onClick = { onMoveSelectedObject("right") }) { Text("→") }
+                OutlinedButton(onClick = { onMoveSelectedObject("up") }) { Text("↑") }
+                OutlinedButton(onClick = { onMoveSelectedObject("down") }) { Text("↓") }
+                ActionChipButton(Icons.Default.ZoomIn, "تكبير", { onResizeSelectedObject(1.1f) })
+                ActionChipButton(Icons.Default.ZoomOut, "تصغير", { onResizeSelectedObject(0.9f) })
                 ActionChipButton(Icons.Default.Image, "25%", { onResizeImage(25) })
                 ActionChipButton(Icons.Default.Image, "50%", { onResizeImage(50) })
                 ActionChipButton(Icons.Default.Image, "75%", { onResizeImage(75) })
