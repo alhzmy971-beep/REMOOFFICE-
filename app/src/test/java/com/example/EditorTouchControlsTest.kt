@@ -27,4 +27,16 @@ class EditorTouchControlsTest {
         assertTrue("أزرار تغيير حجم الكائن غير مربوطة بالواجهة", tools.contains("onResizeSelectedObject") && bridge.contains("resizeSelectedObject"))
         assertTrue("يجب إزالة مقابض التحديد المؤقتة عند حفظ المستند", html.contains("cleanEditor.querySelectorAll"))
     }
+
+    @Test
+    fun visualSelectionFrameHasEightResizeHandlesRotationAndDismissal() {
+        listOf("object-selection-frame", "object-selection-handle", "object-rotation-handle", "rotate.dataset.handle = 'rotate'",
+            "applyObjectResize", "=== 'rotate' ? 'rotate' : 'resize'", "type: 'move'", "updateSelectionFrame", "selectionFrame.classList.remove('visible')")
+            .forEach { assertTrue("مفقود سلوك إطار تحديد الكائن: $it", html.contains(it)) }
+        listOf("'nw','n','ne','e','se','s','sw','w'").forEach {
+            assertTrue("يجب توفير مقابض الاتجاهات الثمانية", html.contains(it))
+        }
+        assertTrue("يجب دعم الترويسة والتذييل دون تعطيل الكتابة", html.contains(".page-header, .page-footer"))
+        assertTrue("إطار التحديد لا يجب أن يدخل في HTML المحفوظ", html.contains("cleanSelectionMarkup"))
+    }
 }

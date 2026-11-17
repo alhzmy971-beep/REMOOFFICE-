@@ -283,28 +283,69 @@
   }
 
   .page img.selected-img {
-    outline: 2.5px solid #1A56DB;
-    outline-offset: 2px;
+    outline: none;
   }
 
-  .selected-edit-object {
-    outline: 2px solid #1A56DB !important;
-    outline-offset: 2px;
-    touch-action: none;
+  .object-selection-frame {
+    position: fixed;
+    display: none;
+    z-index: 99999;
+    border: 2px solid #626262;
+    pointer-events: none;
+    box-sizing: border-box;
+    transform-origin: center center;
   }
-  .selected-edit-object::after {
-    content: "";
+  .object-selection-frame.visible { display: block; }
+  .object-selection-handle {
     position: absolute;
-    right: -7px;
-    bottom: -7px;
     width: 16px;
     height: 16px;
     border: 2px solid #FFFFFF;
     border-radius: 50%;
-    background: #1A56DB;
-    box-shadow: 0 0 0 1px #1A56DB;
-    pointer-events: none;
+    background: #626262;
+    box-shadow: 0 0 0 1px #626262;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    touch-action: none;
   }
+  .object-selection-handle[data-handle="nw"] { left: 0; top: 0; }
+  .object-selection-handle[data-handle="n"]  { left: 50%; top: 0; }
+  .object-selection-handle[data-handle="ne"] { left: 100%; top: 0; }
+  .object-selection-handle[data-handle="e"]  { left: 100%; top: 50%; }
+  .object-selection-handle[data-handle="se"] { left: 100%; top: 100%; }
+  .object-selection-handle[data-handle="s"]  { left: 50%; top: 100%; }
+  .object-selection-handle[data-handle="sw"] { left: 0; top: 100%; }
+  .object-selection-handle[data-handle="w"]  { left: 0; top: 50%; }
+  .object-rotation-stem {
+    position: absolute;
+    left: 50%;
+    top: -48px;
+    width: 2px;
+    height: 46px;
+    background: #626262;
+    transform: translateX(-50%);
+  }
+  .object-rotation-handle {
+    position: absolute;
+    left: 50%;
+    top: -64px;
+    width: 22px;
+    height: 22px;
+    border: 2px solid #FFFFFF;
+    border-radius: 50%;
+    background: #626262;
+    color: #FFFFFF;
+    text-align: center;
+    line-height: 18px;
+    font-size: 15px;
+    transform: translateX(-50%);
+    pointer-events: auto;
+    touch-action: none;
+  }
+  .object-selection-handle[data-handle="nw"], .object-selection-handle[data-handle="se"] { cursor: nwse-resize; }
+  .object-selection-handle[data-handle="ne"], .object-selection-handle[data-handle="sw"] { cursor: nesw-resize; }
+  .object-selection-handle[data-handle="n"], .object-selection-handle[data-handle="s"] { cursor: ns-resize; }
+  .object-selection-handle[data-handle="e"], .object-selection-handle[data-handle="w"] { cursor: ew-resize; }
 
   .page a {
     color: #1A56DB;
@@ -470,6 +511,7 @@
   let tableMove = null;
   let lastTableSelectionMode = null;
   let selectedVisualObject = null;
+  let selectionFrame = null;
   let visualGesture = null;
 
   let suppressTracking = false;
@@ -609,11 +651,18 @@
       });
       const payload = JSON.stringify({
         bodyHtml: cleanEditor.innerHTML,
-        headerHtml: document.getElementById('pageHeader').innerHTML,
-        footerHtml: document.getElementById('pageFooter').innerHTML
+      headerHtml: cleanSelectionMarkup(document.getElementById('pageHeader')),
+      footerHtml: cleanSelectionMarkup(document.getElementById('pageFooter'))
       });
       window.AndroidBridge.onContentChanged(payload);
     }
+  }
+
+  function cleanSelectionMarkup(root) {
+    const clone = root.cloneNode(true);
+    clone.querySelectorAll('.selected-edit-object, .selected-img').forEach(el =>
+      el.classList.remove('selected-edit-object', 'selected-img'));
+    return clone.innerHTML;
   }
 
   function clearTableRange(table) {
@@ -764,9 +813,110 @@
     }
     selectedVisualObject = obj || null;
     if (selectedVisualObject) selectedVisualObject.classList.add('selected-edit-object');
+    ensureSelectionFrame();
+    updateSelectionFrame();
   }
 
-  editor.addEventListener('click', function(e) {
+  function ensureSelectionFrame() {
+    if (selectionFrame) return;
+    selectionFrame = document.createElement('div');
+    selectionFrame.className = 'object-selection-frame';
+    selectionFrame.setAttribute('aria-hidden', 'true');
+    selectionFrame.setAttribute('contenteditable', 'false');
+    ['nw','n','ne','e','se','s','sw','w'].forEach(name => {
+      const handle = document.createElement('div');
+      handle.className = 'object-selection-handle';
+      handle.dataset.handle = name;
+      selectionFrame.appendChild(handle);
+    });
+    const stem = document.createElement('div');
+    stem.className = 'object-rotation-stem';
+    selectionFrame.appendChild(stem);
+    const rotate = document.createElement('div');
+    rotate.className = 'object-rotation-handle';
+    rotate.dataset.handle = 'rotate';
+    rotate.textContent = '↻';
+    selectionFrame.appendChild(rotate);
+    document.body.appendChild(selectionFrame);
+    selectionFrame.addEventListener('pointerup', endVisualGesture);
+    selectionFrame.addEventListener('pointercancel', endVisualGesture);
+
+    selectionFrame.addEventListener('pointerdown', function(e) {
+      const handle = e.target.closest('[data-handle]');
+      if (!handle || !selectedVisualObject) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = selectedVisualObject.getBoundingClientRect();
+      const angle = parseFloat(selectedVisualObject.dataset.remofficeRotation || '0') || 0;
+      visualGesture = {
+        type: handle.dataset.handle === 'rotate' ? 'rotate' : 'resize',
+        handle: handle.dataset.handle,
+        obj: selectedVisualObject,
+        startX: e.clientX,
+        startY: e.clientY,
+        width: rect.width,
+        height: rect.height,
+        centerX: rect.left + rect.width / 2,
+        centerY: rect.top + rect.height / 2,
+        startAngle: Math.atan2(e.clientY - (rect.top + rect.height / 2), e.clientX - (rect.left + rect.width / 2)) * 180 / Math.PI,
+        rotation: angle,
+        changed: false
+      };
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+  }
+
+  function updateSelectionFrame() {
+    if (!selectionFrame) return;
+    const obj = selectedVisualObject;
+    if (!obj || !obj.isConnected || !pageContainer.contains(obj)) {
+      selectionFrame.classList.remove('visible');
+      return;
+    }
+    const rect = obj.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      selectionFrame.classList.remove('visible');
+      return;
+    }
+    selectionFrame.style.left = rect.left + 'px';
+    selectionFrame.style.top = rect.top + 'px';
+    selectionFrame.style.width = rect.width + 'px';
+    selectionFrame.style.height = rect.height + 'px';
+    selectionFrame.classList.add('visible');
+  }
+
+  function applyObjectResize(g, dx, dy) {
+    const h = g.handle;
+    const east = h.includes('e'), west = h.includes('w');
+    const north = h.includes('n'), south = h.includes('s');
+    let width = g.width + (east ? dx : west ? -dx : 0);
+    let height = g.height + (south ? dy : north ? -dy : 0);
+    const isCorner = (east || west) && (north || south);
+    if (isCorner) {
+      const sx = width / Math.max(1, g.width);
+      const sy = height / Math.max(1, g.height);
+      const scale = Math.abs(sx - 1) > Math.abs(sy - 1) ? sx : sy;
+      width = g.width * scale;
+      height = g.height * scale;
+    }
+    width = Math.max(36, Math.min(editor.clientWidth, width));
+    height = Math.max(24, height);
+    g.obj.style.width = width + 'px';
+    if (g.obj.matches('img')) {
+      if (isCorner) g.obj.style.height = height + 'px';
+      else g.obj.style.height = 'auto';
+    } else {
+      g.obj.style.height = height + 'px';
+      g.obj.querySelectorAll('svg').forEach(svg => {
+        svg.style.width = '100%';
+        svg.style.height = '100%';
+      });
+    }
+    g.changed = true;
+    updateSelectionFrame();
+  }
+
+  pageContainer.addEventListener('click', function(e) {
     const clickedCell = getClosestTag(e.target, 'td') || getClosestTag(e.target, 'th');
     editor.querySelectorAll('.table-move-handle').forEach(el => el.classList.remove('table-move-handle'));
     if (clickedCell) {
@@ -808,55 +958,64 @@
       lastSelectedChart.classList.add('selected-chart');
     }
 
-    const visual = getClosestSelector(e.target, 'img, .shape-block, .text-box, .smartart-block, .chart-block');
+    const visual = getClosestSelector(e.target, 'img, .shape-block, .text-box, .smartart-block, .chart-block, .page-header, .page-footer');
     chooseVisualObject(visual);
 
     notifySelectionState();
   });
 
-  editor.addEventListener('pointerdown', function(e) {
-    const obj = getClosestSelector(e.target, 'img, .shape-block, .text-box, .smartart-block, .chart-block');
+  document.addEventListener('click', function(e) {
+    if (pageContainer.contains(e.target) || (selectionFrame && selectionFrame.contains(e.target))) return;
+    if (selectedVisualObject) {
+      selectedVisualObject.classList.remove('selected-edit-object');
+      selectedVisualObject = null;
+      updateSelectionFrame();
+      notifySelectionState();
+    }
+  });
+
+  pageContainer.addEventListener('pointerdown', function(e) {
+    const obj = getClosestSelector(e.target, 'img, .shape-block, .text-box, .smartart-block, .chart-block, .page-header, .page-footer');
     if (!obj || obj !== selectedVisualObject || obj.closest('td, th')) return;
     const rect = obj.getBoundingClientRect();
-    const resizeCorner = e.clientX >= rect.right - 26 && e.clientY >= rect.bottom - 26;
-    const nearObjectEdge = e.clientX <= rect.left + 18 || e.clientX >= rect.right - 18 ||
-      e.clientY <= rect.top + 18 || e.clientY >= rect.bottom - 18;
-    if (obj.matches('.text-box') && !resizeCorner && !nearObjectEdge) return;
-    visualGesture = { obj, x: e.clientX, y: e.clientY, width: rect.width, height: rect.height,
-      resizing: resizeCorner, moving: e.pointerType === 'mouse' && !resizeCorner, timer: null };
-    if (!resizeCorner && e.pointerType !== 'mouse') {
-      visualGesture.timer = setTimeout(() => { if (visualGesture) visualGesture.moving = true; }, 320);
-    }
+    const edge = e.clientX <= rect.left + 20 || e.clientX >= rect.right - 20 ||
+      e.clientY <= rect.top + 20 || e.clientY >= rect.bottom - 20;
+    if ((obj.matches('.text-box, .page-header, .page-footer')) && !edge) return; // preserve direct text editing
+    visualGesture = { type: 'move', obj, startX: e.clientX, startY: e.clientY,
+      left: parseFloat(obj.style.left) || 0, top: parseFloat(obj.style.top) || 0, changed: false };
     try { obj.setPointerCapture(e.pointerId); } catch (_) {}
   });
-  editor.addEventListener('pointermove', function(e) {
+  document.addEventListener('pointermove', function(e) {
     const g = visualGesture;
     if (!g) return;
-    const dx = e.clientX - g.x, dy = e.clientY - g.y;
-    if (g.resizing) {
-      g.obj.style.width = Math.max(36, g.width + dx) + 'px';
-      if (!g.obj.matches('img')) g.obj.style.height = Math.max(24, g.height + dy) + 'px';
-      e.preventDefault();
-    } else if (g.moving && (Math.abs(dx) + Math.abs(dy) > 0)) {
+    if (g.type === 'resize') {
+      applyObjectResize(g, e.clientX - g.startX, e.clientY - g.startY);
+    } else if (g.type === 'rotate') {
+      const current = Math.atan2(e.clientY - g.centerY, e.clientX - g.centerX) * 180 / Math.PI;
+      const angle = g.rotation + current - g.startAngle;
+      g.obj.dataset.remofficeRotation = String(angle);
+      g.obj.style.transform = `rotate(${angle}deg)`;
+      g.changed = true;
+      updateSelectionFrame();
+    } else if (g.type === 'move') {
       g.obj.style.position = 'relative';
-      g.obj.style.left = (g.obj.offsetLeft + dx) + 'px';
-      g.obj.style.top = (g.obj.offsetTop + dy) + 'px';
-      g.x = e.clientX; g.y = e.clientY;
-      e.preventDefault();
-    } else {
-      g.x = e.clientX; g.y = e.clientY;
-      const r = g.obj.getBoundingClientRect();
-      g.width = r.width; g.height = r.height;
+      g.obj.style.left = (g.left + e.clientX - g.startX) + 'px';
+      g.obj.style.top = (g.top + e.clientY - g.startY) + 'px';
+      if (Math.abs(e.clientX - g.startX) + Math.abs(e.clientY - g.startY) > 2) g.changed = true;
+      updateSelectionFrame();
     }
+    if (g.changed) e.preventDefault();
   }, { passive: false });
   function endVisualGesture() {
     if (!visualGesture) return;
-    clearTimeout(visualGesture.timer);
-    if (visualGesture.resizing || visualGesture.moving) notifyContentChanged();
+    if (visualGesture.changed) notifyContentChanged();
     visualGesture = null;
   }
-  editor.addEventListener('pointerup', endVisualGesture);
-  editor.addEventListener('pointercancel', endVisualGesture);
+  document.addEventListener('pointerup', endVisualGesture);
+  document.addEventListener('pointercancel', endVisualGesture);
+  window.addEventListener('scroll', updateSelectionFrame, true);
+  window.addEventListener('resize', updateSelectionFrame);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', updateSelectionFrame);
   editor.addEventListener('keyup', notifySelectionState);
   editor.addEventListener('mouseup', function() {
     if (copiedFormat) {
