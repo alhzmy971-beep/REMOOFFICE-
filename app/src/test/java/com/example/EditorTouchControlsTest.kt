@@ -39,4 +39,30 @@ class EditorTouchControlsTest {
         assertTrue("يجب دعم الترويسة والتذييل دون تعطيل الكتابة", html.contains(".page-header, .page-footer"))
         assertTrue("إطار التحديد لا يجب أن يدخل في HTML المحفوظ", html.contains("cleanSelectionMarkup"))
     }
+
+    @Test
+    fun longPressContextToolbarActionsAreConnectedToSelectedObjects() {
+        listOf("longPressTimer = setTimeout", "object-context-toolbar", "applyContextAction(action)",
+            "['delete', 'حذف'", "['front', 'للأمام'", "['back', 'للخلف'", "['multi', 'تحديد متعدد'",
+            "multiSelectMode", "selectedContextObjects", "notifyContentChanged()")
+            .forEach { assertTrue("مفقود خيار الشريط العائم أو ربطه: $it", html.contains(it)) }
+        assertTrue("ينبغي حذف العناصر المحددة فعليًا", html.contains("targets.forEach(el => { if (el.isConnected) el.remove(); })"))
+        assertTrue("ينبغي تغيير ترتيب العناصر في DOM", html.contains("el.style.zIndex = String(top + index)"))
+    }
+
+    @Test
+    fun tableShowsInlineAddButtonsHeadersAndDraggableRowColumnBoundaries() {
+        listOf("table-selection-controls", "table-add-column", "table-add-row", "table-move-button",
+            "table-col-label", "table-row-label", "table-col-grip", "table-row-grip",
+            "addTableColumnAtEdge", "addTableRowAtEdge", "startTableResize(e, 'col', i)",
+            "startTableResize(e, 'row', i)", "refreshTableSelectionControls()")
+            .forEach { assertTrue("مفقود تحكم الجدول حول حدوده: $it", html.contains(it)) }
+    }
+
+    @Test
+    fun horizontalResizeHandleUsesPointerDeltaAndUpdatesObjectWidth() {
+        assertTrue("يجب تحديد اتجاه مقبض اليمين/اليسار لتوسيع العنصر أفقيًا", html.contains("const east = h.includes('e'), west = h.includes('w')"))
+        assertTrue("يجب تطبيق الإزاحة الأفقية على عرض العنصر", html.contains("let width = g.width + (east ? dx : west ? -dx : 0)"))
+        assertTrue("يجب حفظ عرض الصورة بعد السحب", html.contains("g.obj.style.width = width + 'px'"))
+    }
 }

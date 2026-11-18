@@ -347,6 +347,77 @@
   .object-selection-handle[data-handle="n"], .object-selection-handle[data-handle="s"] { cursor: ns-resize; }
   .object-selection-handle[data-handle="e"], .object-selection-handle[data-handle="w"] { cursor: ew-resize; }
 
+  .object-context-toolbar {
+    position: fixed;
+    z-index: 100002;
+    display: none;
+    flex-direction: row;
+    gap: 4px;
+    padding: 5px;
+    border: 1px solid #CBD5E1;
+    border-radius: 12px;
+    background: #FFFFFF;
+    box-shadow: 0 4px 18px rgba(15,23,42,.22);
+    direction: rtl;
+    touch-action: manipulation;
+  }
+  .object-context-toolbar.visible { display: flex; }
+  .object-context-toolbar button, .table-control-button {
+    min-width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 9px;
+    background: #F1F5F9;
+    color: #1E293B;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    touch-action: manipulation;
+  }
+  .object-context-toolbar button:active, .table-control-button:active { background: #DBEAFE; }
+  .object-context-toolbar button[data-action="delete"] { color: #B91C1C; }
+  .object-context-toolbar button[data-action="multi"].active { background: #DBEAFE; color: #1D4ED8; }
+  .multi-selected-object { outline: 2px dashed #7C3AED !important; outline-offset: 3px; }
+
+  .table-selection-controls {
+    position: fixed;
+    z-index: 100001;
+    display: none;
+    pointer-events: none;
+    direction: ltr;
+  }
+  .table-selection-controls.visible { display: block; }
+  .table-add-column { position: absolute; left: -38px; top: -34px; }
+  .table-add-row { position: absolute; right: -38px; bottom: -38px; }
+  .table-move-button { position: absolute; right: -38px; top: -34px; cursor: move; touch-action: none; }
+  .table-control-button {
+    position: absolute;
+    pointer-events: auto;
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    border: 1.5px solid #64748B;
+    border-radius: 50%;
+    background: #FFFFFF;
+    color: #1683D8;
+    font-size: 24px;
+    line-height: 28px;
+    padding: 0;
+    box-shadow: 0 1px 4px rgba(15,23,42,.18);
+  }
+  .table-move-button { color: #1683D8; font-size: 18px; }
+  .table-col-grip, .table-row-grip {
+    position: absolute;
+    pointer-events: auto;
+    background: #626262;
+    border: 2px solid #FFFFFF;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px #626262;
+    touch-action: none;
+  }
+  .table-col-grip { width: 13px; height: 13px; top: -5px; cursor: col-resize; }
+  .table-row-grip { width: 13px; height: 13px; left: -5px; cursor: row-resize; }
+
   .page a {
     color: #1A56DB;
     text-decoration: underline;
@@ -511,7 +582,16 @@
   let tableMove = null;
   let lastTableSelectionMode = null;
   let selectedVisualObject = null;
+  let selectedContextObjects = [];
+  let multiSelectMode = false;
   let selectionFrame = null;
+  let contextToolbar = null;
+  let tableSelectionControls = null;
+  let selectedTable = null;
+  let longPressTimer = null;
+  let longPressOrigin = null;
+  let longPressTriggered = false;
+  let tableControlGesture = null;
   let visualGesture = null;
 
   let suppressTracking = false;
@@ -641,8 +721,8 @@
     if (suppressTracking) return;
     if (window.AndroidBridge && window.AndroidBridge.onContentChanged) {
       const cleanEditor = editor.cloneNode(true);
-      cleanEditor.querySelectorAll('.selected-cell, .range-selected-cell, .selected-img, .selected-edit-object, .table-move-handle').forEach(el => {
-        el.classList.remove('selected-cell', 'range-selected-cell', 'selected-img', 'selected-edit-object', 'table-move-handle');
+      cleanEditor.querySelectorAll('.selected-cell, .range-selected-cell, .selected-img, .selected-edit-object, .multi-selected-object, .table-move-handle').forEach(el => {
+        el.classList.remove('selected-cell', 'range-selected-cell', 'selected-img', 'selected-edit-object', 'multi-selected-object', 'table-move-handle');
       });
       cleanEditor.querySelectorAll('[data-font-caret="true"]').forEach(span => {
         span.innerHTML = span.innerHTML.replace(/\u200B/g, '');
@@ -660,8 +740,8 @@
 
   function cleanSelectionMarkup(root) {
     const clone = root.cloneNode(true);
-    clone.querySelectorAll('.selected-edit-object, .selected-img').forEach(el =>
-      el.classList.remove('selected-edit-object', 'selected-img'));
+    clone.querySelectorAll('.selected-edit-object, .selected-img, .multi-selected-object').forEach(el =>
+      el.classList.remove('selected-edit-object', 'selected-img', 'multi-selected-object'));
     return clone.innerHTML;
   }
 
@@ -807,6 +887,234 @@
   editor.addEventListener('pointercancel', endTableDrag);
 
   document.addEventListener('selectionchange', notifySelectionState);
+
+  function ensureContextToolbar() {
+    if (contextToolbar) return;
+    contextToolbar = document.createElement('div');
+    contextToolbar.className = 'object-context-toolbar';
+    contextToolbar.setAttribute('contenteditable', 'false');
+    [
+      ['delete', 'حذف', 'حذف العناصر المحددة'],
+      ['front', 'للأمام', 'إحضار إلى الأمام'],
+      ['back', 'للخلف', 'إرسال للخلف'],
+      ['multi', 'تحديد متعدد', 'تحديد عناصر متعددة']
+    ].forEach(([action, label, title]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.action = action;
+      button.textContent = label;
+      button.title = title;
+      button.setAttribute('aria-label', title);
+      button.addEventListener('pointerdown', e => e.stopPropagation());
+      button.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        applyContextAction(action);
+      });
+      contextToolbar.appendChild(button);
+    });
+    document.body.appendChild(contextToolbar);
+  }
+
+  function contextRect() {
+    const target = selectedContextObjects[0] || selectedVisualObject || selectedTable;
+    return target ? target.getBoundingClientRect() : null;
+  }
+
+  function setContextTargets(targets, showToolbar) {
+    selectedContextObjects.forEach(el => el.classList.remove('multi-selected-object'));
+    if (selectedVisualObject && !targets.includes(selectedVisualObject)) selectedVisualObject.classList.remove('selected-edit-object');
+    selectedContextObjects = Array.from(new Set((targets || []).filter(el => el && el.isConnected)));
+    selectedContextObjects.forEach(el => el.classList.add('multi-selected-object'));
+    selectedVisualObject = selectedContextObjects.find(el => !el.matches('table')) || null;
+    if (selectedVisualObject) selectedVisualObject.classList.add('selected-edit-object');
+    ensureSelectionFrame();
+    updateSelectionFrame();
+    if (showToolbar && selectedContextObjects.length) {
+      ensureContextToolbar();
+      contextToolbar.classList.add('visible');
+      const rect = contextRect();
+      if (rect) {
+        contextToolbar.style.left = Math.max(8, Math.min(window.innerWidth - contextToolbar.offsetWidth - 8, rect.left + rect.width / 2 - contextToolbar.offsetWidth / 2)) + 'px';
+        contextToolbar.style.top = Math.max(8, rect.top - contextToolbar.offsetHeight - 12) + 'px';
+      }
+      const multi = contextToolbar.querySelector('[data-action="multi"]');
+      multi.classList.toggle('active', multiSelectMode);
+      multi.textContent = multiSelectMode ? 'إنهاء التحديد' : 'تحديد متعدد';
+    } else if (contextToolbar) {
+      contextToolbar.classList.remove('visible');
+    }
+  }
+
+  function applyContextAction(action) {
+    const targets = selectedContextObjects.slice();
+    if (action === 'multi') {
+      multiSelectMode = !multiSelectMode;
+      if (contextToolbar) contextToolbar.classList.remove('visible');
+      return;
+    }
+    if (!targets.length) {
+      if (contextToolbar) contextToolbar.classList.remove('visible');
+      return;
+    }
+    if (action === 'delete') {
+      targets.forEach(el => { if (el.isConnected) el.remove(); });
+      selectedContextObjects = [];
+      selectedVisualObject = null;
+      selectedTable = null;
+      lastSelectedCell = null;
+      lastSelectedImage = null;
+      lastSelectedSmartArt = null;
+      lastSelectedChart = null;
+      if (selectionFrame) selectionFrame.classList.remove('visible');
+      if (tableSelectionControls) tableSelectionControls.classList.remove('visible');
+      multiSelectMode = false;
+    } else {
+      const groups = new Map();
+      targets.forEach(el => {
+        const parent = el.parentElement;
+        if (!parent) return;
+        if (!groups.has(parent)) groups.set(parent, []);
+        groups.get(parent).push(el);
+      });
+      groups.forEach((groupTargets, parent) => {
+        const siblings = Array.from(parent.children);
+        siblings.forEach((el, index) => {
+          el.style.position = el.style.position || 'relative';
+          if (!groupTargets.includes(el)) el.style.zIndex = String(index + 1);
+        });
+        if (action === 'front') {
+          const top = siblings.length + 2;
+          groupTargets.forEach((el, index) => { el.style.zIndex = String(top + index); });
+        } else {
+          groupTargets.forEach((el, index) => { el.style.zIndex = String(index); });
+          let next = groupTargets.length + 1;
+          siblings.filter(el => !groupTargets.includes(el)).forEach(el => { el.style.zIndex = String(next++); });
+        }
+      });
+    }
+    if (contextToolbar) contextToolbar.classList.remove('visible');
+    notifySelectionState();
+    notifyContentChanged();
+  }
+
+  function ensureTableSelectionControls() {
+    if (tableSelectionControls) return;
+    tableSelectionControls = document.createElement('div');
+    tableSelectionControls.className = 'table-selection-controls';
+    tableSelectionControls.setAttribute('contenteditable', 'false');
+    const addCol = document.createElement('button');
+    addCol.className = 'table-control-button table-add-column';
+    addCol.textContent = '+';
+    addCol.title = 'إضافة عمود';
+    addCol.addEventListener('click', () => addTableColumnAtEdge(true));
+    const addRow = document.createElement('button');
+    addRow.className = 'table-control-button table-add-row';
+    addRow.textContent = '+';
+    addRow.title = 'إضافة صف';
+    addRow.addEventListener('click', () => addTableRowAtEdge());
+    const move = document.createElement('button');
+    move.className = 'table-control-button table-move-button';
+    move.textContent = '✥';
+    move.title = 'تحريك الجدول';
+    move.addEventListener('pointerdown', e => {
+      if (!selectedTable) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = selectedTable.getBoundingClientRect();
+      tableControlGesture = { type: 'move', table: selectedTable, x: e.clientX, y: e.clientY,
+        left: parseFloat(selectedTable.style.left) || 0, top: parseFloat(selectedTable.style.top) || 0, changed: false };
+      try { move.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    tableSelectionControls.append(addCol, addRow, move);
+    document.body.appendChild(tableSelectionControls);
+  }
+
+  function addTableColumnAtEdge(before) {
+    if (!selectedTable) return;
+    Array.from(selectedTable.rows).forEach(row => {
+      const cell = row.insertCell(before ? 0 : row.cells.length);
+      cell.innerHTML = '<br>';
+    });
+    refreshTableSelectionControls();
+    notifyContentChanged();
+  }
+
+  function addTableRowAtEdge() {
+    if (!selectedTable || !selectedTable.rows.length) return;
+    const row = selectedTable.insertRow(-1);
+    const count = selectedTable.rows[0].cells.length;
+    for (let i = 0; i < count; i++) row.insertCell().innerHTML = '<br>';
+    refreshTableSelectionControls();
+    notifyContentChanged();
+  }
+
+  function refreshTableSelectionControls() {
+    if (!tableSelectionControls) return;
+    const table = selectedTable;
+    if (!table || !table.isConnected) {
+      tableSelectionControls.classList.remove('visible');
+      return;
+    }
+    const rect = table.getBoundingClientRect();
+    tableSelectionControls.style.left = rect.left + 'px';
+    tableSelectionControls.style.top = rect.top + 'px';
+    tableSelectionControls.style.width = rect.width + 'px';
+    tableSelectionControls.style.height = rect.height + 'px';
+    tableSelectionControls.querySelectorAll('.table-col-grip,.table-row-grip,.table-col-label,.table-row-label').forEach(el => el.remove());
+    const rows = Array.from(table.rows);
+    const cells = rows[0] ? Array.from(rows[0].cells) : [];
+    const tableRect = table.getBoundingClientRect();
+    cells.forEach((cell, i) => {
+      const cr = cell.getBoundingClientRect();
+      const label = document.createElement('div');
+      label.className = 'table-col-label';
+      label.textContent = String.fromCharCode(65 + (cells.length - i - 1) % 26);
+      label.style.cssText = `position:absolute;left:${cr.left-tableRect.left}px;top:-27px;width:${cr.width}px;height:25px;border:1px solid #9CA3AF;border-radius:4px 4px 0 0;background:#fff;text-align:center;line-height:24px;color:#334155;`;
+      tableSelectionControls.appendChild(label);
+      const grip = document.createElement('div');
+      grip.className = 'table-col-grip';
+      grip.style.left = (cr.right - tableRect.left - 6) + 'px';
+      grip.dataset.index = String(i);
+      grip.addEventListener('pointerdown', e => startTableResize(e, 'col', i));
+      tableSelectionControls.appendChild(grip);
+    });
+    rows.forEach((row, i) => {
+      const rr = row.getBoundingClientRect();
+      const label = document.createElement('div');
+      label.className = 'table-row-label';
+      label.textContent = String(i + 1);
+      label.style.cssText = `position:absolute;left:${tableRect.width+5}px;top:${rr.top-tableRect.top}px;width:28px;height:${rr.height}px;border:1px solid #9CA3AF;background:#fff;text-align:center;line-height:${Math.max(20,rr.height)}px;color:#334155;`;
+      tableSelectionControls.appendChild(label);
+      const grip = document.createElement('div');
+      grip.className = 'table-row-grip';
+      grip.style.top = (rr.bottom - tableRect.top - 6) + 'px';
+      grip.dataset.index = String(i);
+      grip.addEventListener('pointerdown', e => startTableResize(e, 'row', i));
+      tableSelectionControls.appendChild(grip);
+    });
+    tableSelectionControls.classList.add('visible');
+  }
+
+  function startTableResize(e, axis, index) {
+    if (!selectedTable) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = selectedTable.getBoundingClientRect();
+    const firstRow = selectedTable.rows[0];
+    const widths = firstRow ? Array.from(firstRow.cells).map(c => c.getBoundingClientRect().width) : [];
+    const heights = Array.from(selectedTable.rows).map(r => r.getBoundingClientRect().height);
+    tableControlGesture = { type: 'resize', table: selectedTable, axis, index, x: e.clientX, y: e.clientY,
+      width: rect.width, widths, heights, changed: false };
+    try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
+  }
+
+  function updateTableSelectionTarget(table) {
+    selectedTable = table || null;
+    ensureTableSelectionControls();
+    refreshTableSelectionControls();
+  }
+
   function chooseVisualObject(obj) {
     if (selectedVisualObject && selectedVisualObject !== obj) {
       selectedVisualObject.classList.remove('selected-edit-object');
@@ -917,6 +1225,13 @@
   }
 
   pageContainer.addEventListener('click', function(e) {
+    const wasLongPress = longPressTriggered;
+    longPressTriggered = false;
+    if (!multiSelectMode && !wasLongPress) {
+      if (contextToolbar) contextToolbar.classList.remove('visible');
+      selectedContextObjects.forEach(el => el.classList.remove('multi-selected-object'));
+      selectedContextObjects = [];
+    }
     const clickedCell = getClosestTag(e.target, 'td') || getClosestTag(e.target, 'th');
     editor.querySelectorAll('.table-move-handle').forEach(el => el.classList.remove('table-move-handle'));
     if (clickedCell) {
@@ -924,10 +1239,13 @@
       lastSelectedCell = clickedCell;
       const table = getClosestTag(clickedCell, 'table');
       if (table && table.rows[0] && table.rows[0].cells[0]) table.rows[0].cells[0].classList.add('table-move-handle');
+      updateTableSelectionTarget(table);
     } else {
       editor.querySelectorAll('.selected-cell, .range-selected-cell').forEach(el => el.classList.remove('selected-cell', 'range-selected-cell'));
       lastSelectedCell = null;
       lastTableSelectionMode = null;
+      selectedTable = null;
+      if (tableSelectionControls) tableSelectionControls.classList.remove('visible');
     }
     if (lastSelectedImage && lastSelectedImage !== e.target) {
       lastSelectedImage.classList.remove('selected-img');
@@ -959,13 +1277,30 @@
     }
 
     const visual = getClosestSelector(e.target, 'img, .shape-block, .text-box, .smartart-block, .chart-block, .page-header, .page-footer');
-    chooseVisualObject(visual);
+    const contextTarget = visual || getClosestTag(e.target, 'table');
+    if (multiSelectMode && contextTarget) {
+      const targets = selectedContextObjects.slice();
+      const index = targets.indexOf(contextTarget);
+      if (index >= 0) targets.splice(index, 1); else targets.push(contextTarget);
+      setContextTargets(targets, targets.length > 0);
+      if (contextTarget.matches('table')) updateTableSelectionTarget(contextTarget);
+    } else {
+      chooseVisualObject(visual);
+      if (!contextTarget) setContextTargets([], false);
+    }
 
     notifySelectionState();
   });
 
   document.addEventListener('click', function(e) {
-    if (pageContainer.contains(e.target) || (selectionFrame && selectionFrame.contains(e.target))) return;
+    if (pageContainer.contains(e.target) || (selectionFrame && selectionFrame.contains(e.target)) ||
+        (contextToolbar && contextToolbar.contains(e.target)) || (tableSelectionControls && tableSelectionControls.contains(e.target))) return;
+    if (contextToolbar) contextToolbar.classList.remove('visible');
+    if (tableSelectionControls) tableSelectionControls.classList.remove('visible');
+    selectedTable = null;
+    selectedContextObjects.forEach(el => el.classList.remove('multi-selected-object'));
+    selectedContextObjects = [];
+    multiSelectMode = false;
     if (selectedVisualObject) {
       selectedVisualObject.classList.remove('selected-edit-object');
       selectedVisualObject = null;
@@ -976,8 +1311,20 @@
 
   pageContainer.addEventListener('pointerdown', function(e) {
     const obj = getClosestSelector(e.target, 'img, .shape-block, .text-box, .smartart-block, .chart-block, .page-header, .page-footer');
+    const table = getClosestTag(e.target, 'table');
+    const target = obj || table;
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    longPressOrigin = { x: e.clientX, y: e.clientY };
+    clearTimeout(longPressTimer);
+    longPressTimer = setTimeout(() => {
+      longPressTriggered = true;
+      if (tableDrag) { clearTimeout(tableDrag.timer); tableDrag = null; }
+      setContextTargets([target], true);
+      if (table) updateTableSelectionTarget(table);
+      if (navigator.vibrate) navigator.vibrate(18);
+    }, 560);
     if (!obj || obj !== selectedVisualObject || obj.closest('td, th')) return;
-    const rect = obj.getBoundingClientRect();
     const edge = e.clientX <= rect.left + 20 || e.clientX >= rect.right - 20 ||
       e.clientY <= rect.top + 20 || e.clientY >= rect.bottom - 20;
     if ((obj.matches('.text-box, .page-header, .page-footer')) && !edge) return; // preserve direct text editing
@@ -986,6 +1333,35 @@
     try { obj.setPointerCapture(e.pointerId); } catch (_) {}
   });
   document.addEventListener('pointermove', function(e) {
+    if (longPressOrigin && Math.abs(e.clientX - longPressOrigin.x) + Math.abs(e.clientY - longPressOrigin.y) > 12) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+      longPressOrigin = null;
+    }
+    if (tableControlGesture) {
+      const tg = tableControlGesture;
+      if (tg.type === 'move') {
+        tg.table.style.position = 'relative';
+        tg.table.style.left = (tg.left + e.clientX - tg.x) + 'px';
+        tg.table.style.top = (tg.top + e.clientY - tg.y) + 'px';
+        tg.changed = true;
+      } else if (tg.axis === 'col') {
+        const delta = e.clientX - tg.x;
+        const nextWidths = tg.widths.map((w, i) => Math.max(30, w + (i === tg.index ? delta : 0)));
+        tg.table.style.width = Math.max(60, tg.width + delta) + 'px';
+        Array.from(tg.table.rows).forEach(row => Array.from(row.cells).forEach((cell, i) => {
+          if (nextWidths[i]) cell.style.width = nextWidths[i] + 'px';
+        }));
+        tg.changed = true;
+      } else if (tg.axis === 'row') {
+        const row = tg.table.rows[tg.index];
+        if (row) row.style.height = Math.max(28, tg.heights[tg.index] + e.clientY - tg.y) + 'px';
+        tg.changed = true;
+      }
+      if (tg.type !== 'resize') refreshTableSelectionControls();
+      e.preventDefault();
+      return;
+    }
     const g = visualGesture;
     if (!g) return;
     if (g.type === 'resize') {
@@ -1012,10 +1388,26 @@
     visualGesture = null;
   }
   document.addEventListener('pointerup', endVisualGesture);
+  document.addEventListener('pointerup', function() {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+    longPressOrigin = null;
+    if (tableControlGesture) {
+      if (tableControlGesture.changed) notifyContentChanged();
+      tableControlGesture = null;
+      refreshTableSelectionControls();
+    }
+  });
   document.addEventListener('pointercancel', endVisualGesture);
-  window.addEventListener('scroll', updateSelectionFrame, true);
-  window.addEventListener('resize', updateSelectionFrame);
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', updateSelectionFrame);
+  document.addEventListener('pointercancel', function() {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+    longPressOrigin = null;
+    tableControlGesture = null;
+  });
+  window.addEventListener('scroll', () => { updateSelectionFrame(); refreshTableSelectionControls(); }, true);
+  window.addEventListener('resize', () => { updateSelectionFrame(); refreshTableSelectionControls(); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { updateSelectionFrame(); refreshTableSelectionControls(); });
   editor.addEventListener('keyup', notifySelectionState);
   editor.addEventListener('mouseup', function() {
     if (copiedFormat) {
