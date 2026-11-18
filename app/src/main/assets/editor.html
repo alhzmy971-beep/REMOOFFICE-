@@ -63,6 +63,24 @@
     src: url('fonts/reem_kufi.ttf') format('truetype');
   }
   @font-face {
+    font-family: 'Noto Kufi Arabic';
+    src: url('fonts/NotoKufiArabic-VF.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 100 900;
+  }
+  @font-face {
+    font-family: 'Scheherazade New';
+    src: url('fonts/ScheherazadeNew-Regular.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 400;
+  }
+  @font-face {
+    font-family: 'Katibeh';
+    src: url('fonts/Katibeh-Regular.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 400;
+  }
+  @font-face {
     font-family: 'Roboto';
     src: url('fonts/roboto.ttf') format('truetype');
   }
@@ -647,6 +665,14 @@
   }
 
   let lastValidSelectionRange = null;
+  let lastSelectionRoot = editor;
+
+  function editableRootFor(node) {
+    if (!node) return null;
+    const el = node.nodeType === 1 ? node : node.parentElement;
+    if (!el) return null;
+    return el.closest('.page-header, .page-footer, .text-box, #editor');
+  }
 
   function notifySelectionState() {
     try {
@@ -661,8 +687,13 @@
       }
       lastSelectedCell = cell;
 
-      if (sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.toString().trim().length > 0) {
-        lastValidSelectionRange = sel.getRangeAt(0).cloneRange();
+      if (sel && sel.rangeCount > 0) {
+        const liveRange = sel.getRangeAt(0);
+        const root = editableRootFor(liveRange.startContainer);
+        if (root && root.contains(liveRange.endContainer)) {
+          lastValidSelectionRange = liveRange.cloneRange();
+          lastSelectionRoot = root;
+        }
       }
 
       let alignment = 'left';
@@ -1599,14 +1630,13 @@
       currentFontFamily = font;
       const sel = window.getSelection();
       let range = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
-      // Compose controls can take focus before the WebView command arrives.
-      // Restore the most recent editor range instead of applying a font to the
-      // whole page or silently falling back to the browser default.
-      if ((!range || !editor.contains(range.commonAncestorContainer)) && lastValidSelectionRange) {
+      let root = range ? editableRootFor(range.startContainer) : null;
+      if ((!root || !range || !root.contains(range.endContainer)) && lastValidSelectionRange) {
         range = lastValidSelectionRange.cloneRange();
+        root = lastSelectionRoot;
       }
-      focusEditor();
-      if (range && editor.contains(range.commonAncestorContainer)) {
+      if (root && range && root.contains(range.startContainer) && root.contains(range.endContainer)) {
+        root.focus();
         sel.removeAllRanges();
         sel.addRange(range);
         if (!range.collapsed) {
@@ -1619,6 +1649,7 @@
           sel.removeAllRanges();
           sel.addRange(after);
           lastValidSelectionRange = after.cloneRange();
+          lastSelectionRoot = root;
         } else {
           const span = document.createElement('span');
           span.style.fontFamily = `'${font}', sans-serif`;
@@ -1631,10 +1662,10 @@
           sel.removeAllRanges();
           sel.addRange(caret);
           lastValidSelectionRange = caret.cloneRange();
+          lastSelectionRoot = root;
         }
       } else {
-        // No editor caret has ever been established: make the next insertion
-        // inherit the chosen font, without restyling existing document text.
+        // No caret has been established yet; default future page text to this font.
         editor.style.fontFamily = `'${font}', sans-serif`;
       }
       if (document.fonts && document.fonts.load) document.fonts.load(`16px "${font}"`).catch(() => {});

@@ -65,4 +65,14 @@ class EditorTouchControlsTest {
         assertTrue("يجب تطبيق الإزاحة الأفقية على عرض العنصر", html.contains("let width = g.width + (east ? dx : west ? -dx : 0)"))
         assertTrue("يجب حفظ عرض الصورة بعد السحب", html.contains("g.obj.style.width = width + 'px'"))
     }
+
+    @Test
+    fun fontsRestoreCollapsedCaretAndApplyToHeaderFooterAndTextBoxes() {
+        listOf("editableRootFor", ".page-header, .page-footer, .text-box, #editor",
+            "lastValidSelectionRange = liveRange.cloneRange()", "lastSelectionRoot = root",
+            "root.focus()", "range.collapsed", "data-font-caret", "range.extractContents()")
+            .forEach { assertTrue("مفقود دعم تطبيق الخط لمؤشر الكتابة/منطقة التحرير: $it", html.contains(it)) }
+        listOf("Noto Kufi Arabic", "Scheherazade New", "Katibeh")
+            .forEach { assertTrue("الخط غير ظاهر في قائمة Android: $it", tools.contains(it) && html.contains(it)) }
+    }
 }
