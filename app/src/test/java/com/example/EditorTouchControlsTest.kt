@@ -13,6 +13,8 @@ class EditorTouchControlsTest {
     fun tableTouchSelectionResizeMoveAndInsertionAreWired() {
         listOf("pointerdown", "pointermove", "paintTableRange", "tableResize", "tableMove", "table-move-handle")
             .forEach { assertTrue("مفقود دعم لمس الجدول: $it", html.contains(it)) }
+        assertTrue("يجب إنهاء سحب الخلية على مستوى المستند من دون التقاط نقرة الخلية",
+            html.contains("document.addEventListener('pointerup', endTableDrag)"))
         listOf("addTableRowBefore", "addTableColBefore", "addTableRow", "addTableCol")
             .forEach { assertTrue("مفقود أمر الجدول: $it", html.contains(it) && bridge.contains(it)) }
         assertTrue("زر الإدراج قبل الصف غير ظاهر", tools.contains("صف قبل"))

@@ -851,7 +851,6 @@
     // Long-press and drag across cells to select a rectangular cell range.
     tableDrag = { table, first: cell, last: cell, x: e.clientX, y: e.clientY,
       active: false, timer: setTimeout(() => { if (tableDrag) tableDrag.active = true; }, 300) };
-    try { editor.setPointerCapture(e.pointerId); } catch (_) {}
   }, { passive: false });
 
   editor.addEventListener('pointermove', function(e) {
@@ -919,8 +918,8 @@
       notifySelectionState();
     }
   }
-  editor.addEventListener('pointerup', endTableDrag);
-  editor.addEventListener('pointercancel', endTableDrag);
+  document.addEventListener('pointerup', endTableDrag);
+  document.addEventListener('pointercancel', endTableDrag);
 
   document.addEventListener('selectionchange', notifySelectionState);
 
