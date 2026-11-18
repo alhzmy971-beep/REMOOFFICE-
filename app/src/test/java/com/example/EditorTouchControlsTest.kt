@@ -72,6 +72,8 @@ class EditorTouchControlsTest {
             "lastValidSelectionRange = liveRange.cloneRange()", "lastSelectionRoot = root",
             "root.focus()", "range.collapsed", "data-font-caret", "range.extractContents()")
             .forEach { assertTrue("مفقود دعم تطبيق الخط لمؤشر الكتابة/منطقة التحرير: $it", html.contains(it)) }
+        assertTrue("يجب تنظيف علامة المؤشر من الرأس والتذييل عند الحفظ",
+            html.contains("function cleanSelectionMarkup(root)") && html.contains("span.innerHTML = span.innerHTML.replace(/\\u200B/g, '')"))
         listOf("Noto Kufi Arabic", "Scheherazade New", "Katibeh")
             .forEach { assertTrue("الخط غير ظاهر في قائمة Android: $it", tools.contains(it) && html.contains(it)) }
     }

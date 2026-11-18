@@ -773,6 +773,11 @@
     const clone = root.cloneNode(true);
     clone.querySelectorAll('.selected-edit-object, .selected-img, .multi-selected-object').forEach(el =>
       el.classList.remove('selected-edit-object', 'selected-img', 'multi-selected-object'));
+    clone.querySelectorAll('[data-font-caret="true"]').forEach(span => {
+      span.innerHTML = span.innerHTML.replace(/\u200B/g, '');
+      span.removeAttribute('data-font-caret');
+      if (!span.textContent && !span.children.length) span.remove();
+    });
     return clone.innerHTML;
   }
 
